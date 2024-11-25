@@ -6,10 +6,26 @@ from .in_memory_storage import InMemoryStorage
 from langchain_core.messages import HumanMessage, SystemMessage
 from .memory_store import MemoryStore
 from .model import ChatModel, EmbeddingModel
+from sentence_transformers import SentenceTransformer
 
 
 class ConceptExtractionResponse(BaseModel):
     concepts: list[str] = Field(description="List of key concepts extracted from the text.")
+
+
+class SentenceTransformerEmbedding(EmbeddingModel):
+    """
+    Implementation of EmbeddingModel using SentenceTransformers
+    """
+    def __init__(self):
+        self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+        
+    def get_embedding(self, text: str) -> np.ndarray:
+        return self.model.encode(text)
+    
+    def initialize_embedding_dimension(self) -> int:
+        # all-mpnet-base-v2 has 768 dimensions
+        return 768
 
 
 class MemoryManager:
@@ -18,7 +34,8 @@ class MemoryManager:
     adding interactions, retrieving relevant interactions, and generating responses.
     """
 
-    def __init__(self, chat_model: ChatModel, embedding_model: EmbeddingModel, storage=None):
+    def __init__(self, chat_model: ChatModel, embedding_model: EmbeddingModel = None, storage=None):
+        embedding_model = SentenceTransformerEmbedding()
         self.chat_model = chat_model
         self.embedding_model = embedding_model
 
