@@ -1,16 +1,14 @@
-# Python cache
-__pycache__/
-*.py[cod]
-*.so
-
-# Virtual environments
-venv/
-.env/
-
-# Distribution files
-dist/
-build/
-*.egg-info/
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
+/bin
+/conda-meta
+/etc
+/include
+/lib
+/man
+/share
+/ssl
+.env
+**/__pycache__/
+__pycache__
+/.pytest_cache
+dev-key.jsonvenv/
+/venv
