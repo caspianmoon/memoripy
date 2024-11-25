@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import uuid
+import os
 from pydantic import BaseModel, Field
 from .in_memory_storage import InMemoryStorage
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -8,6 +9,7 @@ from .memory_store import MemoryStore
 from .model import ChatModel, EmbeddingModel
 from sentence_transformers import SentenceTransformer
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class ConceptExtractionResponse(BaseModel):
     concepts: list[str] = Field(description="List of key concepts extracted from the text.")
@@ -17,22 +19,36 @@ class SentenceTransformerEmbedding(EmbeddingModel):
     """
     Implementation of EmbeddingModel using SentenceTransformers
     """
-    def __init__(self):
-        self.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(SentenceTransformerEmbedding, cls).__new__(cls)
+            # Initialize the model in __new__ to ensure it's only done once
+            cls._instance.model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+        return cls._instance
         
     def get_embedding(self, text: str) -> np.ndarray:
-        return self.model.encode(text)
+        # Ensure the text is a string and handle potential encoding issues
+        if not isinstance(text, str):
+            text = str(text)
+        try:
+            # Add error handling for the encoding process
+            embedding = self.model.encode(text, convert_to_numpy=True, show_progress_bar=False)
+            return embedding
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            raise
     
     def initialize_embedding_dimension(self) -> int:
-        # all-mpnet-base-v2 has 768 dimensions
         return 768
-
 
 class MemoryManager:
     """
     Manages the memory store, including loading and saving history,
     adding interactions, retrieving relevant interactions, and generating responses.
     """
+
 
     def __init__(self, chat_model: ChatModel, embedding_model: EmbeddingModel = None, storage=None):
         embedding_model = SentenceTransformerEmbedding()
@@ -88,11 +104,15 @@ class MemoryManager:
 
     def get_embedding(self, text: str) -> np.ndarray:
         print(f"Generating embedding for the provided text...")
-        embedding = self.embedding_model.get_embedding(text)
-        if embedding is None:
-            raise ValueError("Failed to generate embedding.")
-        standardized_embedding = self.standardize_embedding(embedding)
-        return np.array(standardized_embedding).reshape(1, -1)
+        try:
+            embedding = self.embedding_model.get_embedding(text)
+            if embedding is None:
+                raise ValueError("Failed to generate embedding.")
+            standardized_embedding = self.standardize_embedding(embedding)
+            return np.array(standardized_embedding).reshape(1, -1)
+        except Exception as e:
+            print(f"Error in get_embedding: {e}")
+            raise
 
     def extract_concepts(self, text: str) -> list[str]:
         print("Extracting key concepts from the provided text...")
