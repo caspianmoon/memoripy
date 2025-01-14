@@ -5,8 +5,8 @@ from memoripy.implemented_models import AzureOpenAIEmbeddingModel, AzureOpenAICh
 
 def main():
     # Set here your actual Azure OpenAI API key, endpoint and API version
-    azure_api_key = "nwIsgHdvGS85sQrVoADdAS4jfOcAPGCG"
-    azure_api_endpoint = "https://iapi-test.merck.com/gpt/libsupport"
+    azure_api_key = ""
+    azure_api_endpoint = ""
     azure_api_version = "2024-10-21"
 
     # Define chat and embedding models
