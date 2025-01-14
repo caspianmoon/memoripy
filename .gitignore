@@ -1,3 +1,9 @@
+.venv
+.idea
+.env
+*.db
+.gitconfig
+
 # Python cache
 __pycache__/
 *.py[cod]

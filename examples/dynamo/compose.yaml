@@ -1,0 +1,29 @@
+services:
+  dynamodb:
+    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
+    image: "amazon/dynamodb-local:latest"
+    ports:
+      - "8200:8000"
+    volumes:
+      - "./data:/home/dynamodblocal/data"
+  dynamodb-healthcheck:
+    entrypoint: ["/bin/sh", "-c", "--", "while true; do sleep 30; done;"]
+    image: "amazon/aws-cli:latest"
+    environment:
+      AWS_ACCESS_KEY_ID: "DUMMYVALUE"
+      AWS_SECRET_ACCESS_KEY: "DUMMYVALUE"
+    healthcheck:
+      test: "aws dynamodb list-tables --endpoint-url http://dynamodb:8000 --region us-east-1"
+      interval: 10s
+      timeout: 10s
+      retries: 5
+  dynamodb-admin:
+    image: "dynamodb-admin:latest"
+    build:
+      context: ./dynamo-admin
+      no_cache: true
+    ports:
+      - "8400:8000"
+    depends_on:
+      dynamodb-healthcheck:
+        condition: service_healthy
