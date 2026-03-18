@@ -1,194 +1,150 @@
-import numpy as np
-import ollama
-from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings, ChatOpenAI, OpenAIEmbeddings
-from langchain_ollama import ChatOllama
-from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.prompts import PromptTemplate
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+import json
+from typing import Any
+from urllib import parse, request
+
 from .model import ChatModel, EmbeddingModel
-from .memory_manager import ConceptExtractionResponse
+from .utils import hashed_embedding, unique_tokens
+
+
+def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    body = json.dumps(payload).encode("utf-8")
+    req = request.Request(url, data=body, headers={"Content-Type": "application/json", **headers}, method="POST")
+    with request.urlopen(req, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+class SimpleKeywordEmbeddingModel(EmbeddingModel):
+    def __init__(self, dimensions: int = 32):
+        self.dimensions = dimensions
+
+    def get_embedding(self, text: str) -> list[float]:
+        return hashed_embedding(text, dimensions=self.dimensions)
+
+    def initialize_embedding_dimension(self) -> int:
+        return self.dimensions
+
+
+class EchoChatModel(ChatModel):
+    def __init__(self, model_name: str = "echo-chat"):
+        self.model_name = model_name
+
+    def invoke(self, messages: list[dict[str, Any]]) -> str:
+        if not messages:
+            return ""
+        return str(messages[-1].get("content", ""))
+
+    def extract_concepts(self, text: str) -> list[str]:
+        return unique_tokens(text)[:10]
 
 
 class OpenAIEmbeddingModel(EmbeddingModel):
-    def __init__(self, api_key, model_name="text-embedding-3-small"):
+    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small", base_url: str = "https://api.openai.com/v1"):
         self.api_key = api_key
         self.model_name = model_name
-        self.embeddings_model = OpenAIEmbeddings(model=model_name, api_key=self.api_key)
+        self.base_url = base_url.rstrip("/")
 
-        if model_name == "text-embedding-3-small":
-            self.dimension = 1536
-        else:
-            raise ValueError("Unsupported OpenAI embedding model name for specified dimension.")
-
-    def get_embedding(self, text: str) -> np.ndarray:
-        embedding = self.embeddings_model.embed_query(text)
-        if embedding is None:
-            raise ValueError("Failed to generate embedding.")
-        return np.array(embedding)
-
-    def initialize_embedding_dimension(self) -> int:
-        return self.dimension
+    def get_embedding(self, text: str) -> list[float]:
+        response = _post_json(
+            f"{self.base_url}/embeddings",
+            {"model": self.model_name, "input": text},
+            {"Authorization": f"Bearer {self.api_key}"},
+        )
+        return list(response["data"][0]["embedding"])
 
 
 class OllamaEmbeddingModel(EmbeddingModel):
-    def __init__(self, model_name="mxbai-embed-large"):
+    def __init__(self, model_name: str = "mxbai-embed-large", base_url: str = "http://localhost:11434"):
         self.model_name = model_name
-        self.dimension = self.initialize_embedding_dimension()
+        self.base_url = base_url.rstrip("/")
 
-    def get_embedding(self, text: str) -> np.ndarray:
-        response = ollama.embeddings(model=self.model_name, prompt=text)
-        embedding = response.get("embedding")
-        if embedding is None:
-            raise ValueError("Failed to generate embedding.")
-        return np.array(embedding)
-
-    def initialize_embedding_dimension(self) -> int:
-        test_text = "Test to determine embedding dimension"
-        response = ollama.embeddings(
-            model=self.model_name,
-            prompt=test_text
+    def get_embedding(self, text: str) -> list[float]:
+        response = _post_json(
+            f"{self.base_url}/api/embeddings",
+            {"model": self.model_name, "prompt": text},
+            {},
         )
-        embedding = response.get("embedding")
-        if embedding is None:
-            raise ValueError("Failed to retrieve embedding for dimension initialization.")
-        return len(embedding)
+        return list(response["embedding"])
 
-
-class OpenAIChatModel(ChatModel):
-    def __init__(self, api_key, model_name="gpt-3.5-turbo"):
-        self.api_key = api_key
-        self.model_name = model_name
-        self.llm = ChatOpenAI(model=model_name, api_key=self.api_key)
-        self.parser = JsonOutputParser(pydantic_object=ConceptExtractionResponse)
-        self.prompt_template = PromptTemplate(
-            template=(
-                "Extract key concepts from the following text in a concise, context-specific manner. "
-                "Include only highly relevant and specific concepts.\n"
-                "{format_instructions}\n{text}"
-            ),
-            input_variables=["text"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
-
-    def invoke(self, messages: list) -> str:
-        response = self.llm.invoke(messages)
-        return str(response.content)
-
-    def extract_concepts(self, text: str) -> list[str]:
-        chain = self.prompt_template | self.llm | self.parser
-        response = chain.invoke({"text": text})
-        concepts = response.get("concepts", [])
-        print(f"Concepts extracted: {concepts}")
-        return concepts
-
-
-class OllamaChatModel(ChatModel):
-    def __init__(self, model_name="llama3.1:8b"):
-        self.model_name = model_name
-        self.llm = ChatOllama(model=model_name, temperature=0)
-        self.parser = JsonOutputParser(pydantic_object=ConceptExtractionResponse)
-        self.prompt_template = PromptTemplate(
-            template=(
-                "Please analyze the following text and provide a list of key concepts that are unique to this content. "
-                "Return only the core concepts that best capture the text's meaning.\n"
-                "{format_instructions}\n{text}"
-            ),
-            input_variables=["text"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
-
-    def invoke(self, messages: list) -> str:
-        response = self.llm.invoke(messages)
-        return str(response.content)
-
-    def extract_concepts(self, text: str) -> list[str]:
-        chain = self.prompt_template | self.llm | self.parser
-        response = chain.invoke({"text": text})
-        concepts = response.get("concepts", [])
-        print(f"Concepts extracted: {concepts}")
-        return concepts
-
-class AzureOpenAIEmbeddingModel(EmbeddingModel):
-    def __init__(self, api_key, api_version, azure_endpoint, model_name="text-embedding-3-small"):
-        self.api_key = api_key
-        self.model_name = model_name
-        self.embeddings_model = AzureOpenAIEmbeddings(model=self.model_name, 
-                                                      api_key=self.api_key,
-                                                      azure_endpoint=azure_endpoint,
-                                                    api_version=api_version)
-
-        if model_name == "text-embedding-3-small":
-            self.dimension = 1536
-        else:
-            raise ValueError("Unsupported OpenAI embedding model name for specified dimension.")
-
-    def get_embedding(self, text: str) -> np.ndarray:
-        embedding = self.embeddings_model.embed_query(text)
-        if embedding is None:
-            raise ValueError("Failed to generate embedding.")
-        return np.array(embedding)
-
-    def initialize_embedding_dimension(self) -> int:
-        return self.dimension
-
-class AzureOpenAIChatModel(ChatModel):
-    def __init__(self, api_key, api_version, azure_endpoint, model_name="gpt-3.5-turbo"):
-        self.api_key = api_key
-        self.model_name = model_name
-        self.llm = AzureChatOpenAI(azure_deployment=self.model_name, 
-                                   api_key=self.api_key,
-                                   azure_endpoint=azure_endpoint,
-                                   api_version=api_version)
-        self.parser = JsonOutputParser(pydantic_object=ConceptExtractionResponse)
-        self.prompt_template = PromptTemplate(
-            template=(
-                "Extract key concepts from the following text in a concise, context-specific manner. "
-                "Include only highly relevant and specific concepts.\n"
-                "{format_instructions}\n{text}"
-            ),
-            input_variables=["text"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
-
-    def invoke(self, messages: list) -> str:
-        response = self.llm.invoke(messages)
-        return str(response.content)
-
-    def extract_concepts(self, text: str) -> list[str]:
-        chain = self.prompt_template | self.llm | self.parser
-        response = chain.invoke({"text": text})
-        concepts = response.get("concepts", [])
-        print(f"Concepts extracted: {concepts}")
-        return concepts
 
 class ChatCompletionsModel(ChatModel):
     def __init__(self, api_endpoint: str, api_key: str, model_name: str):
+        self.api_endpoint = api_endpoint.rstrip("/")
         self.api_key = api_key
         self.model_name = model_name
-        self.llm = ChatOpenAI(openai_api_base = api_endpoint, openai_api_key = api_key, model_name = model_name)
-        self.parser = JsonOutputParser(pydantic_object=ConceptExtractionResponse)
-        self.prompt_template = PromptTemplate(
-            template=(
-                "Extract key concepts from the following text in a concise, context-specific manner. "
-                "Include only the most highly relevant and specific core concepts that best capture the text's meaning. "
-                "Return nothing but the JSON string.\n"
-                "{format_instructions}\n{text}"
-            ),
-            input_variables=["text"],
-            partial_variables={"format_instructions": self.parser.get_format_instructions()},
-        )
 
-    def invoke(self, messages: list) -> str:
-        response = self.llm.invoke(messages)
-        return str(response.content)
-    
+    def invoke(self, messages: list[dict[str, Any]]) -> str:
+        response = _post_json(
+            f"{self.api_endpoint}/chat/completions",
+            {"model": self.model_name, "messages": messages},
+            {"Authorization": f"Bearer {self.api_key}"},
+        )
+        return str(response["choices"][0]["message"]["content"])
+
     def extract_concepts(self, text: str) -> list[str]:
-        chain = self.prompt_template | self.llm | self.parser
-        response = chain.invoke({"text": text})
-        concepts = response.get("concepts", [])
-        print(f"Concepts extracted: {concepts}")
-        return concepts
+        return unique_tokens(text)[:10]
+
+
+class OpenAIChatModel(ChatCompletionsModel):
+    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini", base_url: str = "https://api.openai.com/v1"):
+        super().__init__(api_endpoint=base_url, api_key=api_key, model_name=model_name)
+
 
 class OpenRouterChatModel(ChatCompletionsModel):
     def __init__(self, api_key: str, model_name: str):
         super().__init__(api_endpoint="https://openrouter.ai/api/v1", api_key=api_key, model_name=model_name)
+
+
+class OllamaChatModel(ChatModel):
+    def __init__(self, model_name: str = "llama3.1:8b", base_url: str = "http://localhost:11434"):
+        self.model_name = model_name
+        self.base_url = base_url.rstrip("/")
+
+    def invoke(self, messages: list[dict[str, Any]]) -> str:
+        response = _post_json(
+            f"{self.base_url}/api/chat",
+            {"model": self.model_name, "messages": messages, "stream": False},
+            {},
+        )
+        return str(response["message"]["content"])
+
+    def extract_concepts(self, text: str) -> list[str]:
+        return unique_tokens(text)[:10]
+
+
+class AzureOpenAIEmbeddingModel(EmbeddingModel):
+    def __init__(self, api_key: str, api_version: str, azure_endpoint: str, model_name: str = "text-embedding-3-small"):
+        self.api_key = api_key
+        self.api_version = api_version
+        self.azure_endpoint = azure_endpoint.rstrip("/")
+        self.model_name = model_name
+
+    def get_embedding(self, text: str) -> list[float]:
+        query = parse.urlencode({"api-version": self.api_version})
+        response = _post_json(
+            f"{self.azure_endpoint}/openai/deployments/{self.model_name}/embeddings?{query}",
+            {"input": text},
+            {"api-key": self.api_key},
+        )
+        return list(response["data"][0]["embedding"])
+
+
+class AzureOpenAIChatModel(ChatModel):
+    def __init__(self, api_key: str, api_version: str, azure_endpoint: str, model_name: str = "gpt-4o-mini"):
+        self.api_key = api_key
+        self.api_version = api_version
+        self.azure_endpoint = azure_endpoint.rstrip("/")
+        self.model_name = model_name
+
+    def invoke(self, messages: list[dict[str, Any]]) -> str:
+        query = parse.urlencode({"api-version": self.api_version})
+        response = _post_json(
+            f"{self.azure_endpoint}/openai/deployments/{self.model_name}/chat/completions?{query}",
+            {"messages": messages},
+            {"api-key": self.api_key},
+        )
+        return str(response["choices"][0]["message"]["content"])
+
+    def extract_concepts(self, text: str) -> list[str]:
+        return unique_tokens(text)[:10]

@@ -1,0 +1,483 @@
+{
+  "evidence": {
+    "evidence_5e7354f88fef2018e35df90e": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "5e7354f88fef2018e35df90e75a70defa2fa29af5e2989ac80bcdba25a7c340b",
+      "created_at": "2026-03-18T02:26:59.070478Z",
+      "event_type": "tool_result",
+      "evidence_id": "evidence_5e7354f88fef2018e35df90e",
+      "metadata": {},
+      "modality": "text",
+      "name": "calendar.lookup",
+      "occurred_at": null,
+      "role": null,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "demo-run",
+        "user_id": "demo-user"
+      },
+      "source_type": "tool_result",
+      "text": "Lunch with Ada is on Friday at noon."
+    },
+    "evidence_6b3f49b9b1b08c1b5043f8f8": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "6b3f49b9b1b08c1b5043f8f8b9b9c5b02a9ca5c23736b72b5cd0a4a02aa668d9",
+      "created_at": "2026-03-18T02:26:59.070461Z",
+      "event_type": "message",
+      "evidence_id": "evidence_6b3f49b9b1b08c1b5043f8f8",
+      "metadata": {},
+      "modality": "text",
+      "name": "assistant",
+      "occurred_at": null,
+      "role": "assistant",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "demo-run",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "Nice to meet you, Khazar."
+    },
+    "evidence_d3d281a7bc002f665c544f74": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "d3d281a7bc002f665c544f742c92ab0afe1b770700c1a1a2da4ae3b5b2ef6b9e",
+      "created_at": "2026-03-18T02:26:59.070174Z",
+      "event_type": "message",
+      "evidence_id": "evidence_d3d281a7bc002f665c544f74",
+      "metadata": {},
+      "modality": "text",
+      "name": "user",
+      "occurred_at": null,
+      "role": "user",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "demo-run",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "My name is Khazar"
+    }
+  },
+  "idempotency": {
+    "capture:demo-intro": {
+      "events": [
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_d3d281a7bc002f665c544f74",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "demo-run",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_6b3f49b9b1b08c1b5043f8f8",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "demo-run",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "tool_result",
+          "evidence_id": "evidence_5e7354f88fef2018e35df90e",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "demo-run",
+            "user_id": "demo-user"
+          },
+          "source_type": "tool_result",
+          "type": "evidence_added"
+        },
+        {
+          "kind": "profile_attribute",
+          "layer": "semantic",
+          "record_id": "memory_00c4c771972b4de7ab09f99eadd2f64e",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_d37e819223644e98949b85ea9c49b6d9"
+        },
+        {
+          "kind": "episodic_summary",
+          "layer": "episodic",
+          "record_id": "memory_4f65353c6c3b47a6a7e1b4a80bbda002",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_793a28e7a49441e68922e1ee21d95ad9"
+        }
+      ],
+      "result": {
+        "created": [
+          {
+            "record_id": "memory_00c4c771972b4de7ab09f99eadd2f64e",
+            "summary": "Name: Khazar",
+            "version_id": "version_d37e819223644e98949b85ea9c49b6d9"
+          },
+          {
+            "record_id": "memory_4f65353c6c3b47a6a7e1b4a80bbda002",
+            "summary": "Tool result: Lunch with Ada is on Friday at noon.",
+            "version_id": "version_793a28e7a49441e68922e1ee21d95ad9"
+          }
+        ],
+        "episodic_memory_ids": [
+          "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+        ],
+        "evidence_ids": [
+          "evidence_d3d281a7bc002f665c544f74",
+          "evidence_6b3f49b9b1b08c1b5043f8f8",
+          "evidence_5e7354f88fef2018e35df90e"
+        ],
+        "id": "op_d31df9f1ad864ddd81d0d70678ecb6f0",
+        "memory_ids": [
+          "memory_00c4c771972b4de7ab09f99eadd2f64e",
+          "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+        ],
+        "noop": [],
+        "pending": [],
+        "projection_status": {
+          "graph_current": true,
+          "last_projected_at": "2026-03-18T02:26:59.070945Z",
+          "lexical_current": true,
+          "vector_current": true
+        },
+        "scope": {
+          "agent_id": "jarvis",
+          "run_id": "demo-run",
+          "user_id": "demo-user"
+        },
+        "semantic_memory_ids": [
+          "memory_00c4c771972b4de7ab09f99eadd2f64e"
+        ],
+        "strategy": "v3",
+        "updated": []
+      }
+    }
+  },
+  "lookup": {
+    "ca4998d0f732e1eda1afd6e08474fdfc12230e93d96e378403217495a92777e1": "memory_00c4c771972b4de7ab09f99eadd2f64e"
+  },
+  "memories": {
+    "memory_00c4c771972b4de7ab09f99eadd2f64e": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_d3d281a7bc002f665c544f74"
+      ],
+      "confidence": 0.94,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T02:26:59.070603Z",
+      "current_version_id": "version_d37e819223644e98949b85ea9c49b6d9",
+      "embedding": [
+        -0.14907119849998599,
+        0.14907119849998599,
+        -0.14907119849998599,
+        -0.29814239699997197,
+        0.0,
+        -0.14907119849998599,
+        0.14907119849998599,
+        0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        0.0,
+        0.14907119849998599,
+        -0.14907119849998599,
+        0.4472135954999579,
+        0.0,
+        0.14907119849998599,
+        -0.29814239699997197,
+        0.0,
+        0.0,
+        -0.29814239699997197,
+        -0.14907119849998599,
+        0.29814239699997197,
+        0.0,
+        0.0,
+        0.0,
+        -0.29814239699997197,
+        0.14907119849998599,
+        0.0,
+        0.0,
+        -0.14907119849998599
+      ],
+      "entity_names": [
+        "My",
+        "Khazar"
+      ],
+      "evidence_ids": [
+        "evidence_d3d281a7bc002f665c544f74"
+      ],
+      "key": "name",
+      "kind": "profile_attribute",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T02:26:59.070603Z",
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "name",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "record_id": "memory_00c4c771972b4de7ab09f99eadd2f64e",
+      "salience": 0.9,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "demo-run",
+        "user_id": "demo-user"
+      },
+      "search_text": "semantic message profile_attribute name Name: Khazar Khazar name My Khazar",
+      "source_type": "message",
+      "state": "active",
+      "summary": "Name: Khazar",
+      "tags": [
+        "name"
+      ],
+      "updated_at": "2026-03-18T02:26:59.070603Z",
+      "value": "Khazar",
+      "version_ids": [
+        "version_d37e819223644e98949b85ea9c49b6d9"
+      ]
+    },
+    "memory_4f65353c6c3b47a6a7e1b4a80bbda002": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_5e7354f88fef2018e35df90e"
+      ],
+      "confidence": 0.919,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T02:26:59.070799Z",
+      "current_version_id": "version_793a28e7a49441e68922e1ee21d95ad9",
+      "embedding": [
+        -0.04767312946227962,
+        -0.14301938838683884,
+        0.14301938838683884,
+        -0.14301938838683884,
+        -0.04767312946227962,
+        0.14301938838683884,
+        -0.04767312946227962,
+        -0.14301938838683884,
+        0.5244044240850758,
+        0.04767312946227962,
+        -0.04767312946227962,
+        -0.04767312946227962,
+        0.04767312946227962,
+        0.04767312946227962,
+        -0.2383656473113981,
+        -0.14301938838683884,
+        -0.42905816516051654,
+        -0.04767312946227962,
+        -0.2383656473113981,
+        0.04767312946227962,
+        0.14301938838683884,
+        0.14301938838683884,
+        -0.04767312946227962,
+        0.14301938838683884,
+        0.04767312946227962,
+        0.04767312946227962,
+        -0.3337119062359573,
+        0.14301938838683884,
+        0.2383656473113981,
+        0.04767312946227962,
+        0.14301938838683884,
+        0.04767312946227962
+      ],
+      "entity_names": [
+        "Lunch",
+        "Ada",
+        "Friday"
+      ],
+      "evidence_ids": [
+        "evidence_5e7354f88fef2018e35df90e"
+      ],
+      "key": "episode_67d86780ef159fa5",
+      "kind": "episodic_summary",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T02:26:59.070799Z",
+      "layer": "episodic",
+      "metadata": {
+        "event_type": "tool_result",
+        "modality": "text",
+        "name": "calendar.lookup",
+        "source": "episodic",
+        "source_type": "tool_result"
+      },
+      "record_id": "memory_4f65353c6c3b47a6a7e1b4a80bbda002",
+      "salience": 0.82,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "demo-run",
+        "user_id": "demo-user"
+      },
+      "search_text": "episodic tool_result episodic_summary episode_67d86780ef159fa5 Tool result: Lunch with Ada is on Friday at noon. Lunch with Ada is on Friday at noon. episodic text tool_result Lunch Ada Friday",
+      "source_type": "tool_result",
+      "state": "active",
+      "summary": "Tool result: Lunch with Ada is on Friday at noon.",
+      "tags": [
+        "episodic",
+        "text",
+        "tool_result"
+      ],
+      "updated_at": "2026-03-18T02:26:59.070799Z",
+      "value": "Lunch with Ada is on Friday at noon.",
+      "version_ids": [
+        "version_793a28e7a49441e68922e1ee21d95ad9"
+      ]
+    }
+  },
+  "projections": {
+    "graph": {},
+    "lexical": {
+      "ada": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "at": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "episode_67d86780ef159fa5": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "episodic": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "episodic_summary": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "friday": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "is": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "khazar": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "lunch": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "message": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "my": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "name": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "noon": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "on": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "profile_attribute": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "result": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "semantic": [
+        "memory_00c4c771972b4de7ab09f99eadd2f64e"
+      ],
+      "text": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "tool": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "tool_result": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ],
+      "with": [
+        "memory_4f65353c6c3b47a6a7e1b4a80bbda002"
+      ]
+    },
+    "status": {
+      "graph_current": true,
+      "last_projected_at": "2026-03-18T02:26:59.070945Z",
+      "lexical_current": true,
+      "vector_current": true
+    }
+  },
+  "relations": {},
+  "schema_version": 3,
+  "versions": {
+    "version_793a28e7a49441e68922e1ee21d95ad9": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_5e7354f88fef2018e35df90e"
+      ],
+      "confidence": 0.919,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T02:26:59.070799Z",
+      "evidence_ids": [
+        "evidence_5e7354f88fef2018e35df90e"
+      ],
+      "layer": "episodic",
+      "metadata": {
+        "event_type": "tool_result",
+        "modality": "text",
+        "name": "calendar.lookup",
+        "source": "episodic",
+        "source_type": "tool_result"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "episodic",
+        "text",
+        "tool_result"
+      ],
+      "record_id": "memory_4f65353c6c3b47a6a7e1b4a80bbda002",
+      "salience": 0.82,
+      "source_type": "tool_result",
+      "state": "active",
+      "summary": "Tool result: Lunch with Ada is on Friday at noon.",
+      "supersedes_version_id": null,
+      "value": "Lunch with Ada is on Friday at noon.",
+      "version_id": "version_793a28e7a49441e68922e1ee21d95ad9"
+    },
+    "version_d37e819223644e98949b85ea9c49b6d9": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_d3d281a7bc002f665c544f74"
+      ],
+      "confidence": 0.94,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T02:26:59.070603Z",
+      "evidence_ids": [
+        "evidence_d3d281a7bc002f665c544f74"
+      ],
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "name",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "name"
+      ],
+      "record_id": "memory_00c4c771972b4de7ab09f99eadd2f64e",
+      "salience": 0.9,
+      "source_type": "message",
+      "state": "active",
+      "summary": "Name: Khazar",
+      "supersedes_version_id": null,
+      "value": "Khazar",
+      "version_id": "version_d37e819223644e98949b85ea9c49b6d9"
+    }
+  }
+}

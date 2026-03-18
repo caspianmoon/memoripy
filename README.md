@@ -1,136 +1,170 @@
 # Memoripy
 
-**Memoripy** is a Python library designed to manage and retrieve context-aware memory interactions using both short-term and long-term storage. It supports AI-driven applications requiring memory management, with compatibility for OpenAI, Azure OpenAI, OpenRouter and Ollama APIs. Features include contextual memory retrieval, memory decay and reinforcement, hierarchical clustering, and graph-based associations.
+Memoripy is an assistant-first memory framework for LLM applications.
 
-## Features
+The v3 layer adds Jarvis-style contextual recall on top of the existing versioned storage core:
 
-- **Short-term and Long-term Memory**: Manages memory as short-term or long-term based on usage and relevance.
+- Immutable evidence for messages, tool calls, tool results, and assistant actions
+- Durable semantic memory for facts, preferences, profile attributes, and relations
+- Episodic memory for recent, high-salience interactions and tool observations
+- Hierarchical scope recall across run, assistant, user, and broader assistant context
+- Context packs for live assistant turns with citations and ranking breakdowns
+- Backward-compatible v2 APIs for low-level add/search/history workflows
 
-- **Contextual Retrieval**: Retrieves memories based on embeddings, concepts, and past interactions.
+## What Ships In This Repo
 
-- **Concept Extraction and Embeddings**: Uses OpenAI or Ollama models for concept extraction and embedding generation.
+- `MemoryClient` and `AsyncMemoryClient`
+- `capture(...)` for assistant-first ingestion
+- `context.build(...)` for sectioned live recall
+- `add/search/get/history/export/import` for lower-level control
+- `chat.completions.create(..., memory_strategy="v3")`
+- `MemoryService`, `serve_http()`, and `create_fastapi_app()`
+- In-memory and file-backed repositories
+- Export/import plus schema migration from older snapshots
 
-- **Graph-Based Associations**: Builds a concept graph and uses spreading activation for relevance-based retrieval.
+## Install
 
-- **Hierarchical Clustering**: Clusters similar memories into semantic groups to aid in contextually relevant retrieval.
-
-- **Decay and Reinforcement**: Older memories decay over time, while frequently accessed memories are reinforced.
-
-## Installation
-
-You can install Memoripy with pip:
+Base runtime:
 
 ```bash
 pip install memoripy
 ```
 
-## Usage
-The following example demonstrates how to set up and use Memoripy in a Python script.
+Optional extras:
 
-### Example: `example.py`
-This example script shows the primary functionality of Memoripy, including initialization, storing interactions, retrieving relevant memories, and generating responses.
-
+```bash
+pip install "memoripy[service]"
+pip install "memoripy[dynamo]"
+pip install "memoripy[postgres]"
 ```
-from memoripy import MemoryManager, JSONStorage
-from memoripy.implemented_models import OpenAIChatModel, OllamaEmbeddingModel
 
-def main():
-    # Replace 'your-api-key' with your actual OpenAI API key
-    api_key = "your-key"
-    if not api_key:
-        raise ValueError("Please set your OpenAI API key.")
+## Quickstart
 
-    # Define chat and embedding models
-    chat_model_name = "gpt-4o-mini"  # Specific chat model name
-    embedding_model_name = "mxbai-embed-large"  # Specific embedding model name
+```python
+from memoripy import MemoryClient
 
-    # Choose your storage option
-    storage_option = JSONStorage("interaction_history.json")
-    # Or use in-memory storage:
-    # from memoripy import InMemoryStorage
-    # storage_option = InMemoryStorage()
+client = MemoryClient.from_path("./.memoripy")
 
-    # Initialize the MemoryManager with the selected models and storage
-    memory_manager = MemoryManager(
-        OpenAIChatModel(api_key, chat_model_name),
-        OllamaEmbeddingModel(embedding_model_name),
-        storage=storage_option
-    )
+client.capture(
+    messages=[
+        {"role": "user", "content": "My name is Khazar"},
+        {"role": "assistant", "content": "Nice to meet you, Khazar."},
+    ],
+    events=[
+        {
+            "event_type": "tool_result",
+            "name": "calendar.lookup",
+            "content": "Dinner with Mert is tomorrow at 7 PM",
+        }
+    ],
+    user_id="khazar",
+    agent_id="jarvis",
+    run_id="session-1",
+    idempotency_key="intro-1",
+)
 
-    # New user prompt
-    new_prompt = "My name is Khazar"
+memory_pack = client.context.build(
+    query="What do you remember about me and what is on my calendar?",
+    user_id="khazar",
+    agent_id="jarvis",
+    run_id="session-1",
+)
 
-    # Load the last 5 interactions from history (for context)
-    short_term, _ = memory_manager.load_history()
-    last_interactions = short_term[-5:] if len(short_term) >= 5 else short_term
-
-    # Retrieve relevant past interactions, excluding the last 5
-    relevant_interactions = memory_manager.retrieve_relevant_interactions(new_prompt, exclude_last_n=5)
-
-    # Generate a response using the last interactions and retrieved interactions
-    response = memory_manager.generate_response(new_prompt, last_interactions, relevant_interactions)
-
-    # Display the response
-    print(f"Generated response:\n{response}")
-
-    # Extract concepts for the new interaction
-    combined_text = f"{new_prompt} {response}"
-    concepts = memory_manager.extract_concepts(combined_text)
-
-    # Store this new interaction along with its embedding and concepts
-    new_embedding = memory_manager.get_embedding(combined_text)
-    memory_manager.add_interaction(new_prompt, response, new_embedding, concepts)
-
-if __name__ == "__main__":
-    main()
-
+print(memory_pack.profile)
+print(memory_pack.tool_observations)
 ```
-## Classes and Modules
-- `MemoryManager`: Manages memory interactions, retrieves relevant information, and generates responses based on past interactions.
 
-- `MemoryStore`: Stores and organizes interactions in short-term and long-term memory, with support for clustering and retrieval based on relevance.
+## API Surface
 
-- `InMemoryStorage` and `JSONStorage`: Store memory in either in-memory data structures or JSON files.
+### Assistant-First SDK
 
-- `BaseStorage`: Abstract base class for defining storage methods.
+```python
+from memoripy import MemoryClient
 
-##Core Functionalities
-1. **Initialize Memory**: Load previous interactions from the chosen storage and initialize memory.
+client = MemoryClient()
 
-2. **Add Interaction**: Store a new interaction with its embedding, concepts, prompt, and output.
+client.capture(
+    messages=[{"role": "user", "content": "My favorite city is Tokyo"}],
+    user_id="u1",
+    agent_id="jarvis",
+)
 
-3. **Retrieve Relevant Interactions**: Search past interactions based on a query using cosine similarity, decay factors, and spreading activation.
+pack = client.context.build(query="What city do I like?", user_id="u1", agent_id="jarvis")
+print(pack.preferences[0]["summary"])
+```
 
-4. **Generate Response**: Combine the current prompt and retrieved interactions to generate a contextually relevant response.
+### V3 Chat Grounding
 
-5. **Decay and Reinforcement**: Increase decay on unused memories and reinforce frequently accessed memories.
+```python
+response = client.chat.completions.create(
+    messages=[{"role": "user", "content": "What do you remember about me?"}],
+    user_id="u1",
+    agent_id="jarvis",
+    memory_strategy="v3",
+    include_memory_pack=True,
+)
 
-## Requirements
-Memoripy relies on several dependencies, including:
+print(response["choices"][0]["message"]["content"])
+print(response["memory_pack"]["profile"])
+```
 
-- `openai`
+### Service Layer
 
-- `faiss-cpu`
+```python
+from memoripy import MemoryClient, serve_http
 
-- `numpy`
+server = serve_http(port=8000, client=MemoryClient.from_path("./.memoripy"))
+server.serve_forever()
+```
 
-- `networkx`
+Available endpoints:
 
-- `scikit-learn`
+- `POST /v1/memories`
+- `GET /v1/memories`
+- `GET /v1/memories/{id}`
+- `PATCH /v1/memories/{id}`
+- `DELETE /v1/memories/{id}`
+- `GET /v1/memories/{id}/history`
+- `POST /v1/search`
+- `POST /v1/export`
+- `POST /v1/import`
+- `POST /v1/chat/completions`
+- `POST /v3/capture`
+- `POST /v3/context`
 
-- `langchain`
+## Reliability Model
 
-- `ollama`
+- Mutating operations support idempotency keys.
+- Writes go through immutable evidence plus versioned memory records.
+- Semantic memory and episodic memory share the same durable version history.
+- Search and context assembly expose provenance and ranking breakdowns.
+- Older exported snapshots load into schema version 3 automatically.
 
-These dependencies will be installed automatically with pip install memoripy.
+## Compatibility
 
-## License
-Memoripy is licensed under the Apache 2.0 License.
+The v2 APIs remain available for low-level workflows and existing integrations:
 
-## Contributing
-Contributions are welcome! Feel free to open issues or submit pull requests for improvements.
+```python
+client.add(text="I live in Istanbul", user_id="u1")
+client.search(query="where do i live", user_id="u1")
+client.history(memory_id="memory_...")
+client.export()
+```
 
-## Contributors
-<a href="https://github.com/caspianmoon"><img src="https://avatars.githubusercontent.com/u/128258622?v=4" width="60px" style="border-radius: 50%;" /></a><a href="https://github.com/FrancescoCaracciolo"><img src="https://avatars.githubusercontent.com/u/67018178?v=4" width="60px" style="border-radius: 50%;" /></a><a href="https://github.com/sjwang05"><img src="https://avatars.githubusercontent.com/u/63834813?v=4" width="60px" style="border-radius: 50%;" /></a><a href="https://github.com/virtualramblas"><img src="https://avatars.githubusercontent.com/u/1730182?v=4" width="60px" style="border-radius: 50%;" /></a><a href="https://github.com/robonxt-ai"><img src="https://avatars.githubusercontent.com/u/56778225?v=4" width="60px" style="border-radius: 50%;" /></a><a href="https://github.com/shiro-sata"><img src="https://avatars.githubusercontent.com/u/125814898?v=4" width="60px" style="border-radius: 50%;" /></a>
+The legacy `MemoryManager` shim also still works:
 
+```python
+from memoripy import JSONStorage, MemoryManager
 
+manager = MemoryManager(storage=JSONStorage("memory.json"))
+manager.add_interaction("My name is Khazar", "Nice to meet you")
+print(manager.retrieve_relevant_interactions("name"))
+```
+
+## Tests
+
+Run the built-in suite from the repo root:
+
+```bash
+python3 -m unittest discover -s tests -v
+```

@@ -1,35 +1,26 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-import numpy as np
+from typing import Any
 
 
 class EmbeddingModel(ABC):
     @abstractmethod
-    def get_embedding(self, text: str) -> np.ndarray:
+    def get_embedding(self, text: str) -> list[float]:
         """
-        Generate an embedding for the given text.
+        Generate an embedding vector for the supplied text.
         """
-        pass
 
-    @abstractmethod
-    def initialize_embedding_dimension(self) -> int:
-        """
-        Determine the dimension of the embeddings.
-        """
-        pass
+    def initialize_embedding_dimension(self) -> int | None:
+        return None
 
 
 class ChatModel(ABC):
     @abstractmethod
-    def invoke(self, messages: list) -> str:
+    def invoke(self, messages: list[dict[str, Any]]) -> str:
         """
-        Generate a response from the chat model given a list of messages.
+        Generate a text response for a sequence of chat messages.
         """
-        pass
 
-    @abstractmethod
     def extract_concepts(self, text: str) -> list[str]:
-        """
-        Extract key concepts from the provided text.
-        """
-        pass
-
+        return []
