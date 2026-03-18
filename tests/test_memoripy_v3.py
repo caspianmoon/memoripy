@@ -5,6 +5,15 @@ import unittest
 from memoripy import MemoryClient, MemoryService
 
 
+class RecordingChatModel:
+    def __init__(self):
+        self.calls: list[list[dict[str, str]]] = []
+
+    def invoke(self, messages):
+        self.calls.append(messages)
+        return "ok"
+
+
 class MemoripyV3Tests(unittest.TestCase):
     def test_capture_builds_context_pack_with_sections_and_citations(self):
         client = MemoryClient()
@@ -114,6 +123,151 @@ class MemoripyV3Tests(unittest.TestCase):
         self.assertEqual(response["object"], "chat.completion")
         self.assertIn("memory_pack", response)
         self.assertTrue(response["memory_pack"]["preferences"])
+
+    def test_compound_statement_extracts_clean_semantic_values(self):
+        client = MemoryClient()
+        client.capture(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "My name is Khazar and I live in Istanbul and my favorite city is Tokyo",
+                }
+            ],
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        memory_pack = client.context.build(
+            query="What do you know about me?",
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        profile = {item["key"]: item["value"] for item in memory_pack.profile}
+        preferences = {item["key"]: item["value"] for item in memory_pack.preferences}
+        self.assertEqual(memory_pack.intent, "general")
+        self.assertEqual(profile["name"], "Khazar")
+        self.assertEqual(profile["location"], "Istanbul")
+        self.assertEqual(preferences["favorite_city"], "Tokyo")
+
+    def test_compact_context_dedupes_episode_and_exposes_debug_stats(self):
+        client = MemoryClient()
+        client.capture(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "My name is Khazar and I live in Istanbul and my favorite city is Tokyo",
+                }
+            ],
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        memory_pack = client.context.build(
+            query="What do you know about me?",
+            user_id="user-1",
+            agent_id="jarvis",
+            include_debug=True,
+        )
+
+        self.assertFalse(memory_pack.recent_episodes)
+        for key in (
+            "prompt_tokens_estimate",
+            "selected_count",
+            "dropped_duplicate_count",
+            "dropped_budget_count",
+            "omitted_memory_ids",
+            "grounding_preview",
+        ):
+            self.assertIn(key, memory_pack.debug)
+        self.assertTrue(memory_pack.debug["omitted_memory_ids"])
+
+    def test_explicit_history_query_keeps_recent_episode(self):
+        client = MemoryClient()
+        client.capture(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "My name is Khazar and I live in Istanbul and my favorite city is Tokyo",
+                }
+            ],
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        memory_pack = client.context.build(
+            query="What happened earlier?",
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        self.assertEqual(memory_pack.intent, "episodic")
+        self.assertTrue(memory_pack.recent_episodes)
+
+    def test_compact_chat_prompt_omits_ids_and_citations_and_is_shorter_than_verbose(self):
+        recorder = RecordingChatModel()
+        client = MemoryClient(chat_model=recorder)
+        client.capture(
+            messages=[
+                {
+                    "role": "user",
+                    "content": "My name is Khazar and I live in Istanbul and my favorite city is Tokyo",
+                }
+            ],
+            user_id="user-1",
+            agent_id="jarvis",
+        )
+
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": "What do you know about me?"}],
+            user_id="user-1",
+            agent_id="jarvis",
+            memory_strategy="v3",
+            context_policy="compact",
+        )
+        compact_prompt = recorder.calls[-1][0]["content"]
+
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": "What do you know about me?"}],
+            user_id="user-1",
+            agent_id="jarvis",
+            memory_strategy="v3",
+            context_policy="verbose",
+        )
+        verbose_prompt = recorder.calls[-1][0]["content"]
+
+        self.assertNotIn("memory_id=", compact_prompt)
+        self.assertNotIn("Citations:", compact_prompt)
+        self.assertIn("memory_id=", verbose_prompt)
+        self.assertIn("Citations:", verbose_prompt)
+        self.assertLess(len(compact_prompt.split()), len(verbose_prompt.split()))
+
+    def test_chat_v3_ranks_once_and_returns_memory_and_memory_pack(self):
+        client = MemoryClient()
+        client.capture(messages=[{"role": "user", "content": "My favorite city is Tokyo"}], user_id="user-1", agent_id="jarvis")
+
+        original_rank_records = client._engine._rank_records
+        rank_calls = {"count": 0}
+
+        def counting_rank_records(*args, **kwargs):
+            rank_calls["count"] += 1
+            return original_rank_records(*args, **kwargs)
+
+        client._engine._rank_records = counting_rank_records
+        try:
+            response = client.chat.completions.create(
+                messages=[{"role": "user", "content": "What do you know about me?"}],
+                user_id="user-1",
+                agent_id="jarvis",
+                memory_strategy="v3",
+                include_memory_pack=True,
+            )
+        finally:
+            client._engine._rank_records = original_rank_records
+
+        self.assertEqual(rank_calls["count"], 1)
+        self.assertTrue(response["memory"]["results"])
+        self.assertIn("memory_pack", response)
 
     def test_service_v3_routes(self):
         service = MemoryService()

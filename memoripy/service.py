@@ -33,6 +33,8 @@ class MemoryService:
                 return HTTPStatus.OK, self.client.capture(**payload)
             if method == "POST" and route == "/v3/context":
                 return HTTPStatus.OK, self._jsonable(self.client.context.build(**payload))
+            if method == "POST" and route == "/v3/maintenance/consolidate":
+                return HTTPStatus.OK, self.client.maintenance.consolidate(**payload)
             if method == "POST" and route == "/v1/export":
                 return HTTPStatus.OK, self.client.export()
             if method == "POST" and route == "/v1/import":
@@ -167,6 +169,13 @@ def create_fastapi_app(client: MemoryClient | None = None):
     @app.post("/v3/context")
     async def context(payload: dict[str, Any]) -> dict[str, Any]:
         status, response = service.handle_request(method="POST", path="/v3/context", payload=payload)
+        if status >= 400:
+            raise HTTPException(status_code=status, detail=response)
+        return response
+
+    @app.post("/v3/maintenance/consolidate")
+    async def consolidate(payload: dict[str, Any]) -> dict[str, Any]:
+        status, response = service.handle_request(method="POST", path="/v3/maintenance/consolidate", payload=payload)
         if status >= 400:
             raise HTTPException(status_code=status, detail=response)
         return response

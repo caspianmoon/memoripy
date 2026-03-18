@@ -22,6 +22,8 @@ class EngineState:
         default_factory=lambda: {
             "lexical": {},
             "graph": {},
+            "activation": {},
+            "consolidation": {},
             "status": ProjectionStatus().to_dict(),
         }
     )
@@ -42,6 +44,15 @@ class EngineState:
     def from_dict(cls, payload: dict[str, Any] | None) -> "EngineState":
         payload = payload or {}
         schema_version = max(int(payload.get("schema_version", 2)), 3)
+        projections = deep_copy_json(
+            payload.get("projections")
+            or {"lexical": {}, "graph": {}, "activation": {}, "consolidation": {}, "status": ProjectionStatus().to_dict()}
+        )
+        projections.setdefault("lexical", {})
+        projections.setdefault("graph", {})
+        projections.setdefault("activation", {})
+        projections.setdefault("consolidation", {})
+        projections.setdefault("status", ProjectionStatus().to_dict())
         return cls(
             schema_version=schema_version,
             evidence={
@@ -62,10 +73,7 @@ class EngineState:
             },
             idempotency=deep_copy_json(payload.get("idempotency") or {}),
             lookup=dict(payload.get("lookup") or {}),
-            projections=deep_copy_json(
-                payload.get("projections")
-                or {"lexical": {}, "graph": {}, "status": ProjectionStatus().to_dict()}
-            ),
+            projections=projections,
         )
 
 

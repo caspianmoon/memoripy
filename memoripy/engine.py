@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .extractors import DefaultMemoryExtractor, MemoryCandidate
+from .pipeline import DefaultMemoryReconciler, MemoryPipelineConfig
 from .repository import BaseRepository, EngineState, InMemoryRepository
 from .types import (
     ContextPack,
@@ -27,6 +28,7 @@ from .types import (
 )
 from .utils import (
     cosine_similarity,
+    deep_copy_json,
     extract_entities,
     flatten_text_parts,
     generate_id,
@@ -47,11 +49,22 @@ class MemoryEngine:
         chat_model: Any | None = None,
         embedding_model: Any | None = None,
         extractor: DefaultMemoryExtractor | None = None,
+        pipeline: MemoryPipelineConfig | None = None,
     ):
         self.repository = repository or InMemoryRepository()
         self.chat_model = chat_model
         self.embedding_model = embedding_model
-        self.extractor = extractor or DefaultMemoryExtractor()
+        self.pipeline = pipeline or MemoryPipelineConfig()
+        if pipeline is not None:
+            self.extractor = pipeline.extractor or DefaultMemoryExtractor()
+        else:
+            self.extractor = extractor or DefaultMemoryExtractor()
+        self.brain = self.pipeline.brain
+        self.reconciler = self.pipeline.reconciler or DefaultMemoryReconciler(
+            pending_confidence_threshold=self.pipeline.pending_confidence_threshold
+        )
+        self.reranker = self.pipeline.reranker
+        self.asset_processor = self.pipeline.asset_processor
 
     def add(
         self,
@@ -103,6 +116,54 @@ class MemoryEngine:
             strategy="v3",
         )
 
+    def consolidate(
+        self,
+        *,
+        scope: MemoryScope | dict[str, Any] | None = None,
+        user_id: str | None = None,
+        agent_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 500,
+        budget_ms: int = 50,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        resolved_scope = scope if isinstance(scope, MemoryScope) else MemoryScope.from_dict(scope)
+        if resolved_scope.is_empty():
+            resolved_scope = MemoryScope(user_id=user_id, agent_id=agent_id, run_id=run_id)
+
+        def operation(state: EngineState) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+            self._refresh_activation_projection(state)
+            summary, events = self._run_consolidation_pass(
+                state=state,
+                scope=resolved_scope,
+                limit=limit,
+                budget_ms=budget_ms,
+            )
+            dormancy_transitions = self._apply_dormancy_transitions(state)
+            if summary["changed"] or dormancy_transitions:
+                self._rebuild_projections(state)
+            state.projections["consolidation"] = {
+                "last_run_at": utc_now(),
+                "scope": resolved_scope.to_dict(),
+                "processed_records": summary["processed_records"],
+                "promotion_count": len(summary["promotions"]),
+                "skipped_count": len(summary["skipped"]),
+                "dormancy_transition_count": len(dormancy_transitions),
+                "promotions": list(summary["promotions"]),
+                "dormancy_transitions": list(dormancy_transitions),
+            }
+            return {
+                "status": "ok",
+                "scope": resolved_scope.to_dict(),
+                "processed_records": summary["processed_records"],
+                "promotions": summary["promotions"],
+                "skipped": summary["skipped"],
+                "dormancy_transitions": dormancy_transitions,
+                "projection_status": ProjectionStatus.from_dict(state.projections.get("status")).to_dict(),
+            }, events + dormancy_transitions
+
+        return self.repository.transaction("consolidate", idempotency_key, operation)
+
     def search(
         self,
         *,
@@ -112,8 +173,8 @@ class MemoryEngine:
         run_id: str | None = None,
         limit: int = 5,
         filters: SearchFilters | dict[str, Any] | None = None,
+        include_trace: bool = False,
     ) -> dict[str, Any]:
-        state = self.repository.load_state()
         search_filters = self._coerce_filters(
             filters=filters,
             user_id=user_id,
@@ -122,32 +183,56 @@ class MemoryEngine:
             limit=limit,
         )
         query = normalize_text(query)
-        ranked = self._rank_records(state=state, query=query, search_filters=search_filters)
-        projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
-
-        results: list[SearchResult] = []
-        for score, record, breakdown in ranked[: search_filters.limit]:
-            evidence_items = [
-                state.evidence[evidence_id]
-                for evidence_id in record.citation_evidence_ids or record.evidence_ids
-                if evidence_id in state.evidence
-            ]
-            results.append(
-                SearchResult(
-                    memory=record,
-                    score=score,
-                    rank_breakdown=breakdown,
-                    evidence=evidence_items,
-                    projection_status=projection_status,
-                )
+        if not self._brain_enabled():
+            state = self.repository.load_state()
+            ranked = self._rank_records(state=state, query=query, search_filters=search_filters)
+            projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
+            payload = self._build_search_payload(
+                state=state,
+                query=query,
+                search_filters=search_filters,
+                ranked=ranked,
+                projection_status=projection_status,
             )
+            if self._should_include_trace(include_trace):
+                payload["trace"] = self._search_trace_payload(
+                    state=state,
+                    query=query,
+                    ranked=ranked,
+                    search_filters=search_filters,
+                    working_memory=[],
+                    dormancy_transitions=[],
+                )
+            return payload
 
-        return {
-            "query": query,
-            "filters": search_filters.to_dict(),
-            "results": [result.to_dict() for result in results],
-            "projection_status": projection_status.to_dict(),
-        }
+        def operation(state: EngineState) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+            dormancy_transitions = self._prepare_brain_state(state)
+            if dormancy_transitions:
+                self._rebuild_projections(state)
+            ranked = self._rank_records(state=state, query=query, search_filters=search_filters)
+            retrieval_events = self._touch_retrieval_hits(state=state, ranked=ranked[: search_filters.limit])
+            if retrieval_events:
+                self._rebuild_projections(state)
+            projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
+            payload = self._build_search_payload(
+                state=state,
+                query=query,
+                search_filters=search_filters,
+                ranked=ranked,
+                projection_status=projection_status,
+            )
+            if self._should_include_trace(include_trace):
+                payload["trace"] = self._search_trace_payload(
+                    state=state,
+                    query=query,
+                    ranked=ranked,
+                    search_filters=search_filters,
+                    working_memory=[],
+                    dormancy_transitions=dormancy_transitions,
+                )
+            return payload, dormancy_transitions + retrieval_events
+
+        return self.repository.transaction("search", None, operation)
 
     def build_context(
         self,
@@ -161,8 +246,9 @@ class MemoryEngine:
         max_tokens: int = 480,
         filters: SearchFilters | dict[str, Any] | None = None,
         include_debug: bool = False,
+        include_trace: bool = False,
+        context_policy: str = "compact",
     ) -> ContextPack:
-        state = self.repository.load_state()
         normalized_messages = [
             {"role": item.get("role", "user"), "content": normalize_text(str(item.get("content", "")))}
             for item in (messages or [])
@@ -175,80 +261,43 @@ class MemoryEngine:
             run_id=run_id,
             limit=max(limit * 3, 12),
         )
-        projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
-        intent = self._classify_query_intent(resolved_query)
-        ranked = self._rank_records(state=state, query=resolved_query, search_filters=search_filters, intent=intent)
+        if not self._brain_enabled():
+            state = self.repository.load_state()
+            return self._build_context_artifacts(
+                state=state,
+                query=resolved_query,
+                search_filters=search_filters,
+                limit=limit,
+                max_tokens=max_tokens,
+                include_debug=include_debug,
+                include_trace=self._should_include_trace(include_trace),
+                context_policy=context_policy,
+            )["memory_pack"]
 
-        sections = {
-            "profile": [],
-            "preferences": [],
-            "relationships": [],
-            "recent_episodes": [],
-            "tool_observations": [],
-        }
-        citations: dict[str, dict[str, Any]] = {}
-        used_tokens = 0
-        max_items_per_section = max(2, min(limit, 4))
+        def operation(state: EngineState) -> tuple[ContextPack, list[dict[str, Any]]]:
+            dormancy_transitions = self._prepare_brain_state(state)
+            if dormancy_transitions:
+                self._rebuild_projections(state)
+            artifacts = self._build_context_artifacts(
+                state=state,
+                query=resolved_query,
+                search_filters=search_filters,
+                limit=limit,
+                max_tokens=max_tokens,
+                include_debug=include_debug,
+                include_trace=self._should_include_trace(include_trace),
+                context_policy=context_policy,
+            )
+            retrieval_events = self._touch_retrieval_hits(state=state, ranked=artifacts["selected_ranked"])
+            if retrieval_events:
+                self._rebuild_projections(state)
+            memory_pack = artifacts["memory_pack"]
+            self._refresh_context_pack_items(state=state, memory_pack=memory_pack)
+            if self._should_include_trace(include_trace):
+                memory_pack.trace["consolidation"]["dormancy_transitions"] = list(dormancy_transitions)
+            return memory_pack, dormancy_transitions + retrieval_events
 
-        for score, record, breakdown in ranked:
-            section_name = self._section_for_record(record=record, intent=intent)
-            if len(sections[section_name]) >= max_items_per_section:
-                continue
-
-            context_item = self._context_item_payload(state=state, record=record, score=score, breakdown=breakdown)
-            estimated_tokens = self._estimate_tokens(context_item["summary"] + " " + context_item["value"])
-            if used_tokens and used_tokens + estimated_tokens > max_tokens:
-                continue
-
-            sections[section_name].append(context_item)
-            used_tokens += estimated_tokens
-
-            for evidence_id in context_item["citation_evidence_ids"]:
-                evidence = state.evidence.get(evidence_id)
-                if evidence is None or evidence_id in citations:
-                    continue
-                citations[evidence_id] = {
-                    "evidence_id": evidence.evidence_id,
-                    "memory_id": record.record_id,
-                    "summary": summarize_text(evidence.text, max_words=18),
-                    "text": evidence.text,
-                    "event_type": evidence.event_type,
-                    "source_type": evidence.source_type,
-                    "scope": evidence.scope.to_dict(),
-                    "occurred_at": evidence.occurred_at or evidence.created_at,
-                }
-
-            if sum(len(items) for items in sections.values()) >= limit:
-                break
-
-        debug: dict[str, Any] = {}
-        if include_debug:
-            debug = {
-                "intent": intent,
-                "candidate_count": len(ranked),
-                "included_memory_ids": [
-                    item["memory_id"]
-                    for section_name in sections
-                    for item in sections[section_name]
-                ],
-                "max_tokens": max_tokens,
-                "used_tokens": used_tokens,
-                "filters": search_filters.to_dict(),
-            }
-
-        return ContextPack(
-            query=resolved_query,
-            scope=search_filters.scope or MemoryScope(),
-            intent=intent,
-            profile=sections["profile"],
-            preferences=sections["preferences"],
-            relationships=sections["relationships"],
-            recent_episodes=sections["recent_episodes"],
-            tool_observations=sections["tool_observations"],
-            citations=list(citations.values()),
-            projection_status=projection_status,
-            debug=debug,
-        )
+        return self.repository.transaction("build_context", None, operation)
 
     def get(self, memory_id: str) -> dict[str, Any]:
         state = self.repository.load_state()
@@ -486,34 +535,98 @@ class MemoryEngine:
         tool_events: list[dict[str, Any]] | None = None,
         memory_strategy: str = "v2",
         include_memory_pack: bool = False,
+        include_trace: bool = False,
+        context_policy: str = "compact",
     ) -> dict[str, Any]:
         normalized_messages = [
             {"role": item.get("role", "user"), "content": normalize_text(str(item.get("content", "")))}
             for item in messages
         ]
         user_query = self._last_user_message(normalized_messages)
-        memory_results = self.search(
-            query=user_query,
-            user_id=user_id,
-            agent_id=agent_id,
-            run_id=run_id,
-            limit=limit,
-        )
+        memory_results: dict[str, Any]
 
         memory_pack: ContextPack | None = None
         grounding: str
         if memory_strategy == "v3":
-            memory_pack = self.build_context(
-                query=user_query,
-                messages=normalized_messages,
+            search_filters = self._coerce_filters(
+                filters=None,
                 user_id=user_id,
                 agent_id=agent_id,
                 run_id=run_id,
-                limit=max(limit + 3, 8),
-                include_debug=include_memory_pack,
+                limit=max(limit * 3, 12),
             )
-            grounding = self._format_context_pack(memory_pack)
+            if self._brain_enabled():
+                def operation(state: EngineState) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+                    dormancy_transitions = self._prepare_brain_state(state)
+                    if dormancy_transitions:
+                        self._rebuild_projections(state)
+                    artifacts = self._build_context_artifacts(
+                        state=state,
+                        query=user_query,
+                        search_filters=search_filters,
+                        limit=limit,
+                        max_tokens=480,
+                        include_debug=include_memory_pack,
+                        include_trace=self._should_include_trace(include_trace),
+                        context_policy=context_policy,
+                    )
+                    retrieval_events = self._touch_retrieval_hits(state=state, ranked=artifacts["selected_ranked"])
+                    if retrieval_events:
+                        self._rebuild_projections(state)
+                    response_filters = SearchFilters.from_dict(search_filters.to_dict())
+                    response_filters.limit = limit
+                    memory_pack_local = artifacts["memory_pack"]
+                    self._refresh_context_pack_items(state=state, memory_pack=memory_pack_local)
+                    if self._should_include_trace(include_trace):
+                        memory_pack_local.trace["consolidation"]["dormancy_transitions"] = list(dormancy_transitions)
+                    return {
+                        "memory_pack": memory_pack_local,
+                        "grounding": artifacts["grounding"],
+                        "memory_results": self._build_search_payload(
+                            state=state,
+                            query=user_query,
+                            search_filters=response_filters,
+                            ranked=artifacts["ranked"],
+                            projection_status=ProjectionStatus.from_dict(state.projections.get("status")),
+                        ),
+                    }, dormancy_transitions + retrieval_events
+
+                recall = self.repository.transaction("chat_context", None, operation)
+                memory_pack = recall["memory_pack"]
+                grounding = recall["grounding"]
+                memory_results = recall["memory_results"]
+            else:
+                state = self.repository.load_state()
+                artifacts = self._build_context_artifacts(
+                    state=state,
+                    query=user_query,
+                    search_filters=search_filters,
+                    limit=limit,
+                    max_tokens=480,
+                    include_debug=include_memory_pack,
+                    include_trace=self._should_include_trace(include_trace),
+                    context_policy=context_policy,
+                )
+                memory_pack = artifacts["memory_pack"]
+                grounding = artifacts["grounding"]
+                response_filters = SearchFilters.from_dict(search_filters.to_dict())
+                response_filters.limit = limit
+                memory_results = self._build_search_payload(
+                    state=state,
+                    query=user_query,
+                    search_filters=response_filters,
+                    ranked=artifacts["ranked"],
+                    projection_status=artifacts["projection_status"],
+                )
         else:
+            memory_results = self.search(
+                query=user_query,
+                user_id=user_id,
+                agent_id=agent_id,
+                run_id=run_id,
+                limit=limit,
+                include_trace=self._should_include_trace(include_trace),
+            )
             memory_lines = [
                 f"- {entry['memory']['summary']} (memory_id={entry['memory']['record_id']})"
                 for entry in memory_results["results"]
@@ -588,6 +701,15 @@ class MemoryEngine:
         }
         if include_memory_pack and memory_pack is not None:
             response["memory_pack"] = memory_pack.to_dict()
+        if self._should_include_trace(include_trace):
+            if memory_strategy == "v3" and memory_pack is not None:
+                response["trace"] = dict(memory_pack.trace)
+                response["trace"]["grounding"] = grounding
+                response["trace"]["memory_strategy"] = memory_strategy
+            else:
+                response["trace"] = dict(memory_results.get("trace") or {})
+                response["trace"]["grounding"] = grounding
+                response["trace"]["memory_strategy"] = memory_strategy
         return response
 
     def _ingest(
@@ -675,6 +797,209 @@ class MemoryEngine:
 
         return self.repository.transaction(operation_name, idempotency_key, operation)
 
+    def _brain_enabled(self) -> bool:
+        return normalize_text(getattr(self.brain, "mode", "classic")).lower() == "attention_fast"
+
+    def _activation_projection(self, state: EngineState) -> dict[str, dict[str, Any]]:
+        activation = state.projections.setdefault("activation", {})
+        if not isinstance(activation, dict):
+            activation = {}
+            state.projections["activation"] = activation
+        return activation
+
+    def _activation_entry(self, state: EngineState, record: MemoryRecord) -> dict[str, Any]:
+        activation = self._activation_projection(state)
+        entry = activation.setdefault(record.record_id, {})
+        if not entry.get("last_activated_at"):
+            entry["last_activated_at"] = (
+                record.last_accessed_at or record.last_confirmed_at or record.updated_at or record.created_at
+            )
+        entry["rehearsal_count"] = int(entry.get("rehearsal_count", max(record.confirmation_count, 0)))
+        entry["retrieval_count"] = int(entry.get("retrieval_count", max(record.access_count, 0)))
+        entry["last_consolidated_at"] = entry.get("last_consolidated_at")
+        entry["activation_score"] = float(entry.get("activation_score", 0.0))
+        return entry
+
+    def _parse_timestamp(self, timestamp: str | None) -> datetime | None:
+        if not timestamp:
+            return None
+        try:
+            return datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+
+    def _latest_timestamp(self, *timestamps: str | None) -> str | None:
+        candidates = [
+            (parsed, original)
+            for original in timestamps
+            for parsed in [self._parse_timestamp(original)]
+            if parsed is not None
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda item: item[0])[1]
+
+    def _hours_since(self, timestamp: str | None) -> float:
+        parsed = self._parse_timestamp(timestamp)
+        if parsed is None:
+            return float("inf")
+        return max((datetime.now(timezone.utc) - parsed).total_seconds() / 3600.0, 0.0)
+
+    def _normalized_counter(self, value: int) -> float:
+        if value <= 0:
+            return 0.0
+        return min(math.log1p(value) / math.log(6.0), 1.0)
+
+    def _activation_decay(self, timestamp: str | None) -> float:
+        if not timestamp:
+            return 0.0
+        half_life = max(float(self.brain.attention_decay_half_life_hours), 0.001)
+        age_hours = self._hours_since(timestamp)
+        if math.isinf(age_hours):
+            return 0.0
+        return max(min(0.5 ** (age_hours / half_life), 1.0), 0.0)
+
+    def _activation_score(
+        self,
+        *,
+        record: MemoryRecord,
+        entry: dict[str, Any],
+    ) -> float:
+        activation = (
+            (0.45 * self._activation_decay(entry.get("last_activated_at")))
+            + (0.20 * self._normalized_counter(record.access_count))
+            + (0.15 * self._normalized_counter(record.confirmation_count))
+            + (0.20 * min(max(record.salience, 0.0), 1.0))
+        )
+        return max(0.0, min(activation, 1.0))
+
+    def _refresh_activation_projection(self, state: EngineState) -> None:
+        activation = self._activation_projection(state)
+        valid_record_ids = set(state.memories.keys())
+        for record_id in list(activation.keys()):
+            if record_id not in valid_record_ids:
+                activation.pop(record_id, None)
+        for record in state.memories.values():
+            if record.state in (MemoryState.SUPERSEDED.value, MemoryState.DELETED.value):
+                activation.pop(record.record_id, None)
+                continue
+            entry = self._activation_entry(state, record)
+            entry["activation_score"] = self._activation_score(record=record, entry=entry)
+
+    def _touch_memory_rehearsal(
+        self,
+        *,
+        state: EngineState,
+        record_ids: list[str],
+        activated_at: str | None = None,
+        last_consolidated_at: str | None = None,
+    ) -> None:
+        now = activated_at or utc_now()
+        for record_id in list(dict.fromkeys(record_ids)):
+            record = state.memories.get(record_id)
+            if record is None or record.state in (MemoryState.SUPERSEDED.value, MemoryState.DELETED.value):
+                continue
+            entry = self._activation_entry(state, record)
+            entry["last_activated_at"] = now
+            entry["rehearsal_count"] = int(entry.get("rehearsal_count", 0)) + 1
+            if last_consolidated_at is not None:
+                entry["last_consolidated_at"] = last_consolidated_at
+            entry["activation_score"] = self._activation_score(record=record, entry=entry)
+
+    def _apply_dormancy_transitions(self, state: EngineState) -> list[dict[str, Any]]:
+        if not self._brain_enabled():
+            return []
+        transitions: list[dict[str, Any]] = []
+        threshold = float(self.brain.dormancy_threshold)
+        window_hours = float(self.brain.consolidation_window_hours)
+        for record in state.memories.values():
+            if record.state != MemoryState.ACTIVE.value:
+                continue
+            if record.layer not in (MemoryLayer.SEMANTIC.value, MemoryLayer.EPISODIC.value):
+                continue
+            entry = self._activation_entry(state, record)
+            entry["activation_score"] = self._activation_score(record=record, entry=entry)
+            last_touch = self._latest_timestamp(
+                entry.get("last_activated_at"),
+                record.last_accessed_at,
+                record.last_confirmed_at,
+                record.updated_at,
+            )
+            if entry["activation_score"] >= threshold:
+                continue
+            if self._hours_since(last_touch) < window_hours:
+                continue
+            record.state = MemoryState.DORMANT.value
+            transitions.append(
+                {
+                    "type": "memory_dormant",
+                    "memory_id": record.record_id,
+                    "state": record.state,
+                    "activation_score": entry["activation_score"],
+                }
+            )
+        return transitions
+
+    def _canonical_match_counts(
+        self,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+    ) -> dict[tuple[str, str, str], int]:
+        counts: dict[tuple[str, str, str], int] = defaultdict(int)
+        for _, record, _ in ranked:
+            counts[(record.kind, record.key.lower(), normalize_text(record.value).lower())] += 1
+        return counts
+
+    def _should_reactivate_dormant(
+        self,
+        *,
+        record: MemoryRecord,
+        breakdown: dict[str, float],
+        canonical_match_counts: dict[tuple[str, str, str], int],
+    ) -> bool:
+        if record.state != MemoryState.DORMANT.value:
+            return False
+        exact_cue = float(breakdown.get("exact_cue", 0.0))
+        canonical_key = (record.kind, record.key.lower(), normalize_text(record.value).lower())
+        return exact_cue > 0.85 or canonical_match_counts.get(canonical_key, 0) <= 1
+
+    def _touch_retrieval_hits(
+        self,
+        *,
+        state: EngineState,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+    ) -> list[dict[str, Any]]:
+        if not self._brain_enabled():
+            return []
+        now = utc_now()
+        events: list[dict[str, Any]] = []
+        canonical_match_counts = self._canonical_match_counts(ranked)
+        for _, record, breakdown in ranked:
+            entry = self._activation_entry(state, record)
+            record.access_count += 1
+            record.last_accessed_at = now
+            entry["last_activated_at"] = now
+            entry["retrieval_count"] = int(entry.get("retrieval_count", 0)) + 1
+            if self._should_reactivate_dormant(
+                record=record,
+                breakdown=breakdown,
+                canonical_match_counts=canonical_match_counts,
+            ):
+                record.state = MemoryState.ACTIVE.value
+                events.append(
+                    {
+                        "type": "memory_reactivated",
+                        "memory_id": record.record_id,
+                        "state": record.state,
+                        "activation_score": entry["activation_score"],
+                    }
+                )
+            entry["activation_score"] = self._activation_score(record=record, entry=entry)
+        return events
+
+    def _prepare_brain_state(self, state: EngineState) -> list[dict[str, Any]]:
+        self._refresh_activation_projection(state)
+        return self._apply_dormancy_transitions(state)
+
     def _coerce_filters(
         self,
         *,
@@ -735,7 +1060,7 @@ class MemoryEngine:
             )
         if not normalized:
             raise ValueError("add() requires messages, items, or text")
-        return normalized
+        return self._apply_asset_processor(normalized)
 
     def _normalize_capture_items(
         self,
@@ -786,10 +1111,23 @@ class MemoryEngine:
                         occurred_at=event.get("occurred_at") or event.get("timestamp") or metadata.get("timestamp"),
                         source_type=str(event.get("source_type", event_type)),
                     )
-                )
+                    )
         if not normalized:
             raise ValueError("capture() requires messages, events, or items")
-        return normalized
+        return self._apply_asset_processor(normalized)
+
+    def _apply_asset_processor(self, items: list[IngestionItem]) -> list[IngestionItem]:
+        if self.asset_processor is None:
+            return items
+        processed: list[IngestionItem] = []
+        for item in items:
+            outputs = self.asset_processor.process(item)
+            if not outputs:
+                processed.append(item)
+                continue
+            for output in outputs:
+                processed.append(output if isinstance(output, IngestionItem) else IngestionItem.from_dict(output))
+        return processed
 
     def _event_text(self, payload: dict[str, Any]) -> str:
         attributes = dict(payload.get("attributes") or {})
@@ -951,13 +1289,14 @@ class MemoryEngine:
         )
 
     def _should_promote_semantic(self, candidate: MemoryCandidate, evidence: EvidenceItem) -> bool:
+        threshold = self.pipeline.semantic_promotion_threshold
         if candidate.layer != MemoryLayer.SEMANTIC.value:
             return False
         if candidate.kind in (
             MemoryKind.PROFILE_ATTRIBUTE.value,
             MemoryKind.PREFERENCE.value,
             MemoryKind.RELATION.value,
-        ) and candidate.confidence >= 0.72:
+        ) and candidate.confidence >= threshold:
             return True
         if candidate.salience >= 0.78:
             return True
@@ -1020,28 +1359,43 @@ class MemoryEngine:
         explicit_action: str | None = None,
     ) -> dict[str, Any]:
         lookup_key = self._canonical_lookup_key(scope, candidate.kind, candidate.key)
-        record_id = explicit_record_id or self._existing_record_id(
+        existing_record = None
+        if explicit_record_id and explicit_record_id in state.memories:
+            existing_record = state.memories[explicit_record_id]
+        else:
+            matched_record_id = self._existing_record_id(
+                state=state,
+                scope=scope,
+                candidate=candidate,
+                lookup_key=lookup_key,
+            )
+            if matched_record_id:
+                existing_record = state.memories.get(matched_record_id)
+        decision = self.reconciler.reconcile(
             state=state,
             scope=scope,
             candidate=candidate,
-            lookup_key=lookup_key,
+            existing_record=existing_record,
+            explicit_action=explicit_action,
         )
+        record_id = explicit_record_id or decision.matched_record_id
         now = utc_now()
         events: list[dict[str, Any]] = []
-
-        desired_state = candidate.state
-        if candidate.confidence < 0.75 and candidate.layer != MemoryLayer.EPISODIC.value:
-            if explicit_action not in (MemoryAction.UPDATE.value, MemoryAction.DELETE.value):
-                desired_state = MemoryState.PENDING.value
-        if explicit_action == MemoryAction.DELETE.value:
-            desired_state = MemoryState.DELETED.value
+        desired_state = decision.state
+        reasoning_trace = list(dict.fromkeys(decision.reasoning_trace or ["memory candidate reconciled"]))
+        candidate_metadata = {**dict(candidate.metadata), **dict(decision.metadata)}
 
         if record_id and record_id in state.memories:
             record = state.memories[record_id]
             current_version = state.versions.get(record.current_version_id) if record.current_version_id else None
             same_value = normalize_text(record.value).lower() == normalize_text(candidate.value).lower()
+            if candidate.kind == MemoryKind.PREFERENCE.value:
+                record_sentiment = normalize_text(str(record.metadata.get("sentiment", ""))).lower()
+                candidate_sentiment = normalize_text(str(candidate.metadata.get("sentiment", ""))).lower()
+                if record_sentiment and candidate_sentiment and record_sentiment != candidate_sentiment:
+                    same_value = False
 
-            if explicit_action == MemoryAction.DELETE.value:
+            if decision.action == MemoryAction.DELETE.value:
                 if record.state == MemoryState.DELETED.value:
                     return {
                         "action": MemoryAction.NONE.value,
@@ -1063,8 +1417,8 @@ class MemoryEngine:
                     created_at=now,
                     confidence=1.0,
                     evidence_ids=evidence_ids,
-                    metadata=dict(candidate.metadata),
-                    reasoning_trace=["explicit delete"],
+                    metadata=candidate_metadata,
+                    reasoning_trace=reasoning_trace,
                     supersedes_version_id=record.current_version_id,
                     salience=candidate.salience,
                     source_type=candidate.source_type,
@@ -1082,6 +1436,7 @@ class MemoryEngine:
                 record.last_confirmed_at = now
                 record.evidence_ids = list(dict.fromkeys(record.evidence_ids + evidence_ids))
                 record.citation_evidence_ids = list(dict.fromkeys(record.citation_evidence_ids + evidence_ids))
+                record.metadata = {**record.metadata, **candidate_metadata}
                 record.search_text = self._search_text(record)
                 record.contradicted_by = []
                 events.append({"type": "memory_deleted", "record_id": record.record_id, "version_id": version.version_id})
@@ -1099,12 +1454,12 @@ class MemoryEngine:
                 record.last_confirmed_at = now
                 record.confidence = max(record.confidence, candidate.confidence)
                 record.salience = max(record.salience, candidate.salience)
-                record.metadata = {**record.metadata, **candidate.metadata}
+                record.metadata = {**record.metadata, **candidate_metadata}
                 record.tags = list(dict.fromkeys(record.tags + candidate.tags))
                 record.entity_names = list(dict.fromkeys(record.entity_names + candidate.entity_names))
                 record.confirmation_count += 1
                 record.contradicted_by = []
-                if record.state == MemoryState.PENDING.value and candidate.confidence >= 0.75:
+                if record.state == MemoryState.PENDING.value and candidate.confidence >= self.pipeline.pending_confidence_threshold:
                     record.state = MemoryState.ACTIVE.value
                 if current_version is not None:
                     current_version.state = record.state
@@ -1115,6 +1470,11 @@ class MemoryEngine:
                     current_version.confidence = max(current_version.confidence, candidate.confidence)
                     current_version.salience = max(current_version.salience, candidate.salience)
                     current_version.source_type = candidate.source_type
+                    current_version.metadata = {**current_version.metadata, **candidate_metadata}
+                    current_version.reasoning_trace = list(
+                        dict.fromkeys(current_version.reasoning_trace + reasoning_trace)
+                    )
+                self._touch_memory_rehearsal(state=state, record_ids=[record.record_id], activated_at=now)
                 return {
                     "action": MemoryAction.NONE.value,
                     "state": record.state,
@@ -1131,6 +1491,8 @@ class MemoryEngine:
                     now=now,
                     state_override=MemoryState.PENDING.value,
                     action_override=MemoryAction.ADD.value,
+                    reasoning_trace=reasoning_trace,
+                    metadata_override=candidate_metadata,
                 )
 
             version_id = generate_id("version")
@@ -1138,7 +1500,7 @@ class MemoryEngine:
                 current_version.state = MemoryState.SUPERSEDED.value
                 current_version.contradicted_by = list(dict.fromkeys(current_version.contradicted_by + [version_id]))
 
-            action = explicit_action or MemoryAction.SUPERSEDE.value
+            action = decision.action
             version = MemoryVersion(
                 version_id=version_id,
                 record_id=record.record_id,
@@ -1149,8 +1511,8 @@ class MemoryEngine:
                 created_at=now,
                 confidence=candidate.confidence,
                 evidence_ids=evidence_ids,
-                metadata=dict(candidate.metadata),
-                reasoning_trace=["superseded previous version", *candidate.tags],
+                metadata=candidate_metadata,
+                reasoning_trace=reasoning_trace,
                 supersedes_version_id=record.current_version_id,
                 salience=candidate.salience,
                 source_type=candidate.source_type,
@@ -1161,6 +1523,8 @@ class MemoryEngine:
             state.versions[version.version_id] = version
             record.current_version_id = version.version_id
             record.version_ids.append(version.version_id)
+            record.kind = candidate.kind
+            record.key = candidate.key
             record.state = desired_state
             record.summary = candidate.summary
             record.value = candidate.value
@@ -1168,7 +1532,7 @@ class MemoryEngine:
             record.last_confirmed_at = now
             record.evidence_ids = list(dict.fromkeys(record.evidence_ids + evidence_ids))
             record.citation_evidence_ids = list(dict.fromkeys(record.citation_evidence_ids + evidence_ids))
-            record.metadata = {**record.metadata, **candidate.metadata}
+            record.metadata = {**record.metadata, **candidate_metadata}
             record.tags = list(dict.fromkeys(record.tags + candidate.tags))
             record.entity_names = list(dict.fromkeys(record.entity_names + candidate.entity_names))
             record.search_text = self._search_text(record)
@@ -1179,6 +1543,7 @@ class MemoryEngine:
             record.layer = candidate.layer
             record.confirmation_count = 1
             record.contradicted_by = []
+            self._touch_memory_rehearsal(state=state, record_ids=[record.record_id], activated_at=now)
             events.append(
                 {
                     "type": "memory_version_written",
@@ -1202,7 +1567,9 @@ class MemoryEngine:
             evidence_ids=evidence_ids,
             now=now,
             state_override=desired_state,
-            action_override=explicit_action or MemoryAction.ADD.value,
+            action_override=decision.action,
+            reasoning_trace=reasoning_trace,
+            metadata_override=candidate_metadata,
         )
 
     def _create_new_record(
@@ -1215,9 +1582,12 @@ class MemoryEngine:
         now: str,
         state_override: str,
         action_override: str,
+        reasoning_trace: list[str] | None = None,
+        metadata_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         record_id = generate_id("memory")
         version_id = generate_id("version")
+        record_metadata = dict(metadata_override or candidate.metadata)
         record = MemoryRecord(
             record_id=record_id,
             kind=candidate.kind,
@@ -1231,7 +1601,7 @@ class MemoryEngine:
             evidence_ids=list(evidence_ids),
             created_at=now,
             updated_at=now,
-            metadata=dict(candidate.metadata),
+            metadata=record_metadata,
             tags=list(candidate.tags),
             entity_names=list(candidate.entity_names),
             search_text="",
@@ -1257,8 +1627,8 @@ class MemoryEngine:
             created_at=now,
             confidence=candidate.confidence,
             evidence_ids=list(evidence_ids),
-            metadata=dict(candidate.metadata),
-            reasoning_trace=["new memory created", *candidate.tags],
+            metadata=record_metadata,
+            reasoning_trace=list(reasoning_trace or ["new memory created", *candidate.tags]),
             salience=candidate.salience,
             source_type=candidate.source_type,
             layer=candidate.layer,
@@ -1269,6 +1639,7 @@ class MemoryEngine:
         state.versions[version_id] = version
         if state_override == MemoryState.ACTIVE.value and candidate.layer == MemoryLayer.SEMANTIC.value:
             state.lookup[self._canonical_lookup_key(scope, candidate.kind, candidate.key)] = record_id
+        self._touch_memory_rehearsal(state=state, record_ids=[record_id], activated_at=now)
         return {
             "action": action_override,
             "state": state_override,
@@ -1285,11 +1656,261 @@ class MemoryEngine:
             ],
         }
 
+    def _within_consolidation_window(self, timestamp: str | None) -> bool:
+        return self._hours_since(timestamp) <= float(self.brain.consolidation_window_hours)
+
+    def _semantic_candidates_for_consolidation(
+        self,
+        *,
+        state: EngineState,
+        record: MemoryRecord,
+    ) -> list[tuple[MemoryCandidate, str, str]]:
+        candidates: list[tuple[MemoryCandidate, str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for evidence_id in record.citation_evidence_ids or record.evidence_ids:
+            evidence = state.evidence.get(evidence_id)
+            if evidence is None:
+                continue
+            if hasattr(self.extractor, "extract_semantic"):
+                semantic_candidates = list(self.extractor.extract_semantic(evidence))
+            else:
+                semantic_candidates = [
+                    candidate
+                    for candidate in self.extractor.extract(evidence)
+                    if candidate.layer != MemoryLayer.EPISODIC.value
+                ]
+            for candidate in semantic_candidates:
+                finalized = self._finalize_candidate(candidate, evidence)
+                if finalized.layer != MemoryLayer.SEMANTIC.value:
+                    continue
+                dedupe_key = (
+                    finalized.kind,
+                    finalized.key.lower(),
+                    normalize_text(finalized.value).lower(),
+                )
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                candidates.append((finalized, evidence_id, evidence.event_type))
+        return candidates
+
+    def _consolidation_cluster_key(self, *, scope: MemoryScope, candidate: MemoryCandidate) -> str:
+        if candidate.kind == MemoryKind.PROFILE_ATTRIBUTE.value:
+            topic = candidate.key.lower()
+        elif candidate.kind == MemoryKind.PREFERENCE.value:
+            topic = normalize_text(str(candidate.metadata.get("topic", candidate.key))).lower()
+        elif candidate.kind == MemoryKind.RELATION.value:
+            entities = sorted(name.lower() for name in candidate.entity_names if normalize_text(name))
+            topic = "::".join(entities or [candidate.key.lower()])
+        elif candidate.source_type in (EventType.TOOL_RESULT.value, EventType.TOOL_CALL.value):
+            entities = sorted(name.lower() for name in candidate.entity_names if normalize_text(name))
+            topic = "::".join([normalize_text(str(candidate.metadata.get("name", candidate.key))).lower(), *entities])
+        else:
+            topic = normalize_text(candidate.key or " ".join(tokenize(candidate.value)[:6])).lower()
+        return stable_hash(scope.to_dict(), candidate.kind, topic)
+
+    def _cluster_conflict_reason(self, cluster: dict[str, Any]) -> str | None:
+        candidates: list[MemoryCandidate] = cluster["candidates"]
+        values = {normalize_text(candidate.value).lower() for candidate in candidates if normalize_text(candidate.value)}
+        if cluster["kind"] == MemoryKind.PROFILE_ATTRIBUTE.value and len(values) > 1:
+            return "profile_value_conflict"
+        if cluster["kind"] == MemoryKind.PREFERENCE.value:
+            sentiments = {
+                normalize_text(str(candidate.metadata.get("sentiment", ""))).lower()
+                for candidate in candidates
+                if normalize_text(str(candidate.metadata.get("sentiment", "")))
+            }
+            if len(sentiments) > 1 or len(values) > 1:
+                return "preference_conflict"
+        return None
+
+    def _weighted_candidate_score(self, candidate: MemoryCandidate) -> float:
+        return (candidate.confidence * 0.7) + (candidate.salience * 0.3)
+
+    def _representative_consolidation_candidate(self, cluster: dict[str, Any], when: str) -> MemoryCandidate:
+        grouped: dict[str, list[MemoryCandidate]] = defaultdict(list)
+        for candidate in cluster["candidates"]:
+            grouped[normalize_text(candidate.value).lower()].append(candidate)
+        best_group = max(
+            grouped.values(),
+            key=lambda items: (
+                len(items),
+                max(self._weighted_candidate_score(item) for item in items),
+            ),
+        )
+        representative = max(best_group, key=self._weighted_candidate_score)
+        support_count = len(cluster["evidence_ids"])
+        entity_names = list(
+            dict.fromkeys(name for candidate in cluster["candidates"] for name in candidate.entity_names)
+        )
+        tags = list(dict.fromkeys(tag for candidate in cluster["candidates"] for tag in candidate.tags))
+        average_confidence = sum(self._weighted_candidate_score(item) for item in cluster["candidates"]) / max(
+            len(cluster["candidates"]),
+            1,
+        )
+        metadata = {
+            **dict(representative.metadata),
+            "consolidated_from_record_ids": sorted(cluster["record_ids"]),
+            "support_count": support_count,
+            "last_consolidated_at": when,
+        }
+        return MemoryCandidate(
+            kind=representative.kind,
+            key=representative.key,
+            value=representative.value,
+            summary=representative.summary,
+            confidence=max(representative.confidence, min(average_confidence, 1.0)),
+            state=MemoryState.ACTIVE.value,
+            metadata=metadata,
+            entity_names=entity_names,
+            tags=tags,
+            layer=MemoryLayer.SEMANTIC.value,
+            salience=max(representative.salience, min(average_confidence, 1.0)),
+            source_type=representative.source_type,
+        )
+
+    def _run_consolidation_pass(
+        self,
+        *,
+        state: EngineState,
+        scope: MemoryScope,
+        limit: int,
+        budget_ms: int,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        started = time.monotonic()
+        now = utc_now()
+        min_support = max(int(self.brain.consolidation_min_support), 1)
+        episodic_records = [
+            record
+            for record in state.memories.values()
+            if record.layer == MemoryLayer.EPISODIC.value
+            and record.state == MemoryState.ACTIVE.value
+            and record.scope.matches(scope)
+            and self._within_consolidation_window(record.updated_at)
+        ]
+        episodic_records.sort(key=lambda item: item.updated_at, reverse=True)
+
+        clusters: dict[str, dict[str, Any]] = {}
+        processed_records = 0
+        for record in episodic_records:
+            if processed_records >= max(limit, 0):
+                break
+            if ((time.monotonic() - started) * 1000.0) > max(budget_ms, 1):
+                break
+            processed_records += 1
+            for candidate, evidence_id, event_type in self._semantic_candidates_for_consolidation(state=state, record=record):
+                cluster_key = self._consolidation_cluster_key(scope=record.scope, candidate=candidate)
+                cluster = clusters.setdefault(
+                    cluster_key,
+                    {
+                        "scope": record.scope,
+                        "kind": candidate.kind,
+                        "candidates": [],
+                        "record_ids": set(),
+                        "evidence_ids": set(),
+                        "event_types": set(),
+                    },
+                )
+                cluster["candidates"].append(candidate)
+                cluster["record_ids"].add(record.record_id)
+                cluster["evidence_ids"].add(evidence_id)
+                cluster["event_types"].add(event_type)
+
+        promotions: list[dict[str, Any]] = []
+        skipped: list[dict[str, Any]] = []
+        events: list[dict[str, Any]] = []
+        for cluster_key, cluster in clusters.items():
+            support_count = len(cluster["evidence_ids"])
+            dual_source = (
+                EventType.TOOL_RESULT.value in cluster["event_types"]
+                and EventType.MESSAGE.value in cluster["event_types"]
+            )
+            confidence = sum(self._weighted_candidate_score(item) for item in cluster["candidates"]) / max(
+                len(cluster["candidates"]),
+                1,
+            )
+            conflict_reason = self._cluster_conflict_reason(cluster)
+            if conflict_reason is not None:
+                skipped.append(
+                    {
+                        "cluster_key": cluster_key,
+                        "reason": conflict_reason,
+                        "support_count": support_count,
+                    }
+                )
+                continue
+            if support_count < min_support and not dual_source:
+                skipped.append(
+                    {
+                        "cluster_key": cluster_key,
+                        "reason": "insufficient_support",
+                        "support_count": support_count,
+                    }
+                )
+                continue
+            if confidence < 0.78:
+                skipped.append(
+                    {
+                        "cluster_key": cluster_key,
+                        "reason": "confidence_below_threshold",
+                        "support_count": support_count,
+                    }
+                )
+                continue
+
+            candidate = self._representative_consolidation_candidate(cluster, now)
+            outcome = self._apply_candidate(
+                state=state,
+                candidate=candidate,
+                scope=cluster["scope"],
+                evidence_ids=sorted(cluster["evidence_ids"]),
+            )
+            record_id = outcome["payload"].get("record_id")
+            if record_id:
+                entry = self._activation_entry(state, state.memories[record_id])
+                entry["last_consolidated_at"] = now
+                entry["activation_score"] = self._activation_score(record=state.memories[record_id], entry=entry)
+            for source_record_id in cluster["record_ids"]:
+                source_record = state.memories.get(source_record_id)
+                if source_record is None:
+                    continue
+                entry = self._activation_entry(state, source_record)
+                entry["last_consolidated_at"] = now
+                entry["activation_score"] = self._activation_score(record=source_record, entry=entry)
+            promotions.append(
+                {
+                    "memory_id": record_id,
+                    "action": outcome["action"],
+                    "kind": candidate.kind,
+                    "key": candidate.key,
+                    "summary": candidate.summary,
+                    "support_count": support_count,
+                }
+            )
+            events.extend(outcome["events"])
+            events.append(
+                {
+                    "type": "memory_consolidated",
+                    "memory_id": record_id,
+                    "kind": candidate.kind,
+                    "support_count": support_count,
+                }
+            )
+
+        return {
+            "changed": bool(promotions),
+            "processed_records": processed_records,
+            "promotions": promotions,
+            "skipped": skipped,
+        }, events
+
     def _rebuild_projections(self, state: EngineState) -> None:
         lexical: dict[str, list[str]] = defaultdict(list)
         graph: dict[str, list[str]] = defaultdict(list)
         relations: dict[str, RelationEdge] = {}
         active_records = [record for record in state.memories.values() if record.state == MemoryState.ACTIVE.value]
+        activation = deep_copy_json(state.projections.get("activation") or {})
+        consolidation = deep_copy_json(state.projections.get("consolidation") or {})
         state.lookup = {}
 
         for record in state.memories.values():
@@ -1324,6 +1945,8 @@ class MemoryEngine:
         state.projections = {
             "lexical": {key: sorted(set(value)) for key, value in lexical.items()},
             "graph": {key: sorted(set(value)) for key, value in graph.items()},
+            "activation": activation,
+            "consolidation": consolidation,
             "status": ProjectionStatus(
                 lexical_current=True,
                 vector_current=True,
@@ -1331,6 +1954,7 @@ class MemoryEngine:
                 last_projected_at=utc_now(),
             ).to_dict(),
         }
+        self._refresh_activation_projection(state)
 
     def _record_matches_filters(
         self,
@@ -1351,7 +1975,11 @@ class MemoryEngine:
             if record.state not in filters.states:
                 return False
         elif not filters.include_pending and record.state != MemoryState.ACTIVE.value:
-            return False
+            allowed_states = {MemoryState.ACTIVE.value}
+            if self._brain_enabled():
+                allowed_states.add(MemoryState.DORMANT.value)
+            if record.state not in allowed_states:
+                return False
         if filters.tags and not set(filters.tags).intersection(record.tags):
             return False
         for key, value in filters.metadata.items():
@@ -1376,11 +2004,6 @@ class MemoryEngine:
         projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
         _ = projection_status
 
-        candidate_ids = set()
-        lexical_index = state.projections.get("lexical") or {}
-        for token in query_tokens:
-            candidate_ids.update(lexical_index.get(token, []))
-
         eligible_records: list[tuple[MemoryRecord, float]] = []
         for record in state.memories.values():
             if not self._record_matches_filters(record, search_filters, include_scope=False):
@@ -1394,13 +2017,42 @@ class MemoryEngine:
                 continue
             eligible_records.append((record, scope_score))
 
-        if candidate_ids:
-            narrowed = [(record, scope_score) for record, scope_score in eligible_records if record.record_id in candidate_ids]
-            records = narrowed or eligible_records
-        else:
-            records = eligible_records
-
         graph = state.projections.get("graph") or {}
+        if self._brain_enabled():
+            shortlist_ids = self._brain_shortlist_ids(
+                state=state,
+                eligible_records=eligible_records,
+                query=query,
+                query_tokens=query_tokens,
+                query_entities=query_entities,
+                search_filters=search_filters,
+                adjacency=graph,
+            )
+            if shortlist_ids:
+                narrowed = [
+                    (record, scope_score)
+                    for record, scope_score in eligible_records
+                    if record.record_id in shortlist_ids
+                ]
+                records = narrowed or eligible_records
+            else:
+                records = eligible_records
+        else:
+            candidate_ids = set()
+            lexical_index = state.projections.get("lexical") or {}
+            for token in query_tokens:
+                candidate_ids.update(lexical_index.get(token, []))
+            if candidate_ids:
+                narrowed = [
+                    (record, scope_score)
+                    for record, scope_score in eligible_records
+                    if record.record_id in candidate_ids
+                ]
+                records = narrowed or eligible_records
+            else:
+                records = eligible_records
+
+        activation = state.projections.get("activation") or {}
         first_pass: list[tuple[float, MemoryRecord, dict[str, float]]] = []
         for record, scope_score in records:
             lexical_score = self._lexical_score(query_tokens, record.search_text)
@@ -1421,6 +2073,7 @@ class MemoryEngine:
                 + (llm_score * 0.04)
             )
             breakdown = {
+                "base": total,
                 "lexical": lexical_score,
                 "vector": vector_score,
                 "graph": 0.0,
@@ -1430,6 +2083,13 @@ class MemoryEngine:
                 "salience": salience_score,
                 "intent": intent_score,
                 "llm": llm_score,
+                "reranker": 0.0,
+                "activation": 0.0,
+                "rehearsal": 0.0,
+                "exact_cue": 0.0,
+                "brain_graph_spread": 0.0,
+                "dormancy_penalty": 0.0,
+                "contradiction_penalty": 0.0,
             }
             first_pass.append((total, record, breakdown))
 
@@ -1446,7 +2106,58 @@ class MemoryEngine:
             )
             total = base_score + (graph_score * 0.1)
             breakdown["graph"] = graph_score
+            if self._brain_enabled():
+                entry = activation.get(record.record_id) or {}
+                activation_score = float(entry.get("activation_score", 0.0))
+                rehearsal_score = min(
+                    (
+                        int(entry.get("rehearsal_count", 0))
+                        + int(entry.get("retrieval_count", 0))
+                    )
+                    / 6.0,
+                    1.0,
+                )
+                exact_cue = self._direct_cue_score(
+                    query=query,
+                    record=record,
+                    query_tokens=query_tokens,
+                    query_entities=query_entities,
+                )
+                graph_spread = graph_score
+                dormancy_penalty = 1.0 if record.state == MemoryState.DORMANT.value else 0.0
+                contradiction_penalty = min(len(record.contradicted_by) * 0.5, 1.0)
+                total += (
+                    (activation_score * 0.18)
+                    + (rehearsal_score * 0.08)
+                    + (exact_cue * 0.06)
+                    + (graph_spread * 0.04)
+                    - (dormancy_penalty * 0.12)
+                    - (contradiction_penalty * 0.10)
+                )
+                breakdown["activation"] = activation_score
+                breakdown["rehearsal"] = rehearsal_score
+                breakdown["exact_cue"] = exact_cue
+                breakdown["brain_graph_spread"] = graph_spread
+                breakdown["dormancy_penalty"] = dormancy_penalty
+                breakdown["contradiction_penalty"] = contradiction_penalty
             ranked.append((total, record, breakdown))
+
+        if self.reranker is not None and ranked:
+            rerank_outcomes = self.reranker.rerank(
+                query=query,
+                candidates=ranked,
+                state=state,
+                search_filters=search_filters,
+                intent=intent,
+            )
+            reranked: list[tuple[float, MemoryRecord, dict[str, float]]] = []
+            for total, record, breakdown in ranked:
+                outcome = rerank_outcomes.get(record.record_id)
+                reranker_score = float(outcome.score) if outcome is not None else 0.0
+                updated_breakdown = dict(breakdown)
+                updated_breakdown["reranker"] = reranker_score
+                reranked.append((total + (reranker_score * 0.12), record, updated_breakdown))
+            ranked = reranked
 
         ranked.sort(key=lambda item: item[0], reverse=True)
         if not ranked and eligible_records:
@@ -1455,6 +2166,12 @@ class MemoryEngine:
                 recency_score = self._recency_score(record.updated_at)
                 salience_score = min(max(record.salience, 0.0), 1.0)
                 total = (scope_score * 0.6) + (recency_score * 0.25) + (salience_score * 0.15)
+                exact_cue = self._direct_cue_score(
+                    query=query,
+                    record=record,
+                    query_tokens=query_tokens,
+                    query_entities=query_entities,
+                )
                 fallback.append(
                     (
                         total,
@@ -1469,12 +2186,95 @@ class MemoryEngine:
                             "salience": salience_score,
                             "intent": self._intent_score(intent, record),
                             "llm": 0.0,
+                            "reranker": 0.0,
+                            "activation": float((activation.get(record.record_id) or {}).get("activation_score", 0.0)),
+                            "rehearsal": 0.0,
+                            "exact_cue": exact_cue,
+                            "brain_graph_spread": 0.0,
+                            "dormancy_penalty": 1.0 if record.state == MemoryState.DORMANT.value else 0.0,
+                            "contradiction_penalty": min(len(record.contradicted_by) * 0.5, 1.0),
                         },
                     )
                 )
             fallback.sort(key=lambda item: item[0], reverse=True)
             return fallback
         return ranked
+
+    def _brain_shortlist_ids(
+        self,
+        *,
+        state: EngineState,
+        eligible_records: list[tuple[MemoryRecord, float]],
+        query: str,
+        query_tokens: list[str],
+        query_entities: list[str],
+        search_filters: SearchFilters,
+        adjacency: dict[str, list[str]],
+    ) -> list[str]:
+        del search_filters
+        lexical_index = state.projections.get("lexical") or {}
+        activation = state.projections.get("activation") or {}
+        lexical_ids: list[str] = []
+        for token in query_tokens:
+            lexical_ids.extend(lexical_index.get(token, []))
+
+        strong_cue_ids = [
+            record.record_id
+            for record, _ in eligible_records
+            if self._direct_cue_score(
+                query=query,
+                record=record,
+                query_tokens=query_tokens,
+                query_entities=query_entities,
+            )
+            > 0.85
+        ]
+        activated_ids = [
+            record.record_id
+            for record, _ in sorted(
+                eligible_records,
+                key=lambda item: (
+                    float((activation.get(item[0].record_id) or {}).get("activation_score", 0.0)),
+                    (activation.get(item[0].record_id) or {}).get("last_activated_at") or "",
+                ),
+                reverse=True,
+            )
+            if float((activation.get(record.record_id) or {}).get("activation_score", 0.0)) > 0.0
+        ]
+        seed_ids = list(dict.fromkeys(lexical_ids + strong_cue_ids))[:4]
+        neighbor_ids: list[str] = []
+        for seed_id in seed_ids:
+            neighbor_ids.extend(adjacency.get(seed_id, []))
+        shortlist = list(dict.fromkeys(lexical_ids + strong_cue_ids + activated_ids + neighbor_ids))
+        return shortlist[: max(int(self.brain.fast_path_candidate_limit), 1)]
+
+    def _direct_cue_score(
+        self,
+        *,
+        query: str,
+        record: MemoryRecord,
+        query_tokens: list[str],
+        query_entities: list[str],
+    ) -> float:
+        normalized_query = normalize_text(query).lower()
+        if not normalized_query:
+            return 0.0
+        record_value = normalize_text(record.value).lower()
+        record_key = normalize_text(record.key).lower()
+        record_text = normalize_text(record.search_text).lower()
+        if normalized_query in {record_value, record_key}:
+            return 1.0
+        if normalized_query and normalized_query in record_text:
+            return 0.92
+        record_entities = {normalize_text(item).lower() for item in record.entity_names if normalize_text(item)}
+        query_entity_set = {normalize_text(item).lower() for item in query_entities if normalize_text(item)}
+        if record_entities.intersection(query_entity_set):
+            return 0.9
+        record_tokens = set(tokenize(record_text))
+        token_overlap = len(set(query_tokens).intersection(record_tokens)) / max(len(set(query_tokens)), 1)
+        if record.state == MemoryState.DORMANT.value and token_overlap > 0.0:
+            return max(token_overlap, 0.86)
+        return min(token_overlap, 1.0)
 
     def _scope_score(
         self,
@@ -1626,9 +2426,22 @@ class MemoryEngine:
 
     def _classify_query_intent(self, query: str) -> str:
         lower_query = normalize_text(query).lower()
+        if any(
+            phrase in lower_query
+            for phrase in (
+                "what do you know about me",
+                "what do you remember about me",
+                "tell me about me",
+                "what do you know so far",
+            )
+        ):
+            return "general"
         if any(token in lower_query for token in ("favorite", "prefer", "like", "love", "dislike", "hate")):
             return "preference"
-        if any(token in lower_query for token in ("who knows", "relationship", "works at", "visited", "with ")) or " know " in f" {lower_query} ":
+        if any(
+            token in lower_query
+            for token in ("who knows", "relationship", "works at", "visited", "friends with", "related to")
+        ):
             return "relationship"
         if any(token in lower_query for token in ("recent", "earlier", "last time", "remember when", "what happened")):
             return "episodic"
@@ -1691,6 +2504,7 @@ class MemoryEngine:
             "memory_id": record.record_id,
             "kind": record.kind,
             "key": record.key,
+            "state": record.state,
             "summary": record.summary,
             "value": record.value,
             "layer": record.layer,
@@ -1708,26 +2522,541 @@ class MemoryEngine:
     def _estimate_tokens(self, text: str) -> int:
         return max(1, math.ceil(len(normalize_text(text).split()) * 1.35))
 
-    def _format_context_pack(self, memory_pack: ContextPack) -> str:
-        sections = [
-            ("Profile", memory_pack.profile),
-            ("Preferences", memory_pack.preferences),
-            ("Relationships", memory_pack.relationships),
-            ("Recent Episodes", memory_pack.recent_episodes),
-            ("Tool Observations", memory_pack.tool_observations),
+    def _build_search_payload(
+        self,
+        *,
+        state: EngineState,
+        query: str,
+        search_filters: SearchFilters,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+        projection_status: ProjectionStatus,
+    ) -> dict[str, Any]:
+        results: list[SearchResult] = []
+        for score, record, breakdown in ranked[: search_filters.limit]:
+            evidence_items = [
+                state.evidence[evidence_id]
+                for evidence_id in record.citation_evidence_ids or record.evidence_ids
+                if evidence_id in state.evidence
+            ]
+            results.append(
+                SearchResult(
+                    memory=record,
+                    score=score,
+                    rank_breakdown=breakdown,
+                    evidence=evidence_items,
+                    projection_status=projection_status,
+                )
+            )
+
+        return {
+            "query": query,
+            "filters": search_filters.to_dict(),
+            "results": [result.to_dict() for result in results],
+            "projection_status": projection_status.to_dict(),
+        }
+
+    def _search_trace_payload(
+        self,
+        *,
+        state: EngineState,
+        query: str,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+        search_filters: SearchFilters,
+        working_memory: list[dict[str, Any]],
+        dormancy_transitions: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "query": query,
+            "filters": search_filters.to_dict(),
+            "pipeline": self.pipeline.describe(),
+            "activation": {
+                "mode": self.brain.mode,
+                "results": self._activation_trace_items(state=state, ranked=ranked),
+            },
+            "working_memory": {
+                "selected_memory_ids": [item["memory_id"] for item in working_memory],
+                "items": working_memory,
+            },
+            "consolidation": {
+                "last_run": dict(state.projections.get("consolidation") or {}),
+                "dormancy_transitions": list(dormancy_transitions),
+            },
+            "ranking": {
+                "candidate_count": len(ranked),
+                "reranker_applied": self.reranker is not None,
+                "results": self._ranking_trace_items(state=state, ranked=ranked),
+            },
+        }
+
+    def _ranking_trace_items(
+        self,
+        *,
+        state: EngineState,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+    ) -> list[dict[str, Any]]:
+        items: list[dict[str, Any]] = []
+        for score, record, breakdown in ranked[: self.pipeline.max_trace_results]:
+            current_version = state.versions.get(record.current_version_id) if record.current_version_id else None
+            activation_entry = (state.projections.get("activation") or {}).get(record.record_id) or {}
+            items.append(
+                {
+                    "memory_id": record.record_id,
+                    "kind": record.kind,
+                    "key": record.key,
+                    "score": score,
+                    "state": record.state,
+                    "rank_breakdown": dict(breakdown),
+                    "latest_action": current_version.action if current_version is not None else None,
+                    "reasoning_trace": list(current_version.reasoning_trace if current_version is not None else []),
+                    "activation": {
+                        "activation_score": float(activation_entry.get("activation_score", 0.0)),
+                        "last_activated_at": activation_entry.get("last_activated_at"),
+                        "rehearsal_count": int(activation_entry.get("rehearsal_count", 0)),
+                        "retrieval_count": int(activation_entry.get("retrieval_count", 0)),
+                        "last_consolidated_at": activation_entry.get("last_consolidated_at"),
+                    },
+                }
+            )
+        return items
+
+    def _activation_trace_items(
+        self,
+        *,
+        state: EngineState,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+    ) -> list[dict[str, Any]]:
+        activation = state.projections.get("activation") or {}
+        items: list[dict[str, Any]] = []
+        for _, record, breakdown in ranked[: self.pipeline.max_trace_results]:
+            entry = activation.get(record.record_id) or {}
+            items.append(
+                {
+                    "memory_id": record.record_id,
+                    "activation_score": float(entry.get("activation_score", 0.0)),
+                    "last_activated_at": entry.get("last_activated_at"),
+                    "rehearsal_count": int(entry.get("rehearsal_count", 0)),
+                    "retrieval_count": int(entry.get("retrieval_count", 0)),
+                    "last_consolidated_at": entry.get("last_consolidated_at"),
+                    "factors": {
+                        "activation": float(breakdown.get("activation", 0.0)),
+                        "rehearsal": float(breakdown.get("rehearsal", 0.0)),
+                        "exact_cue": float(breakdown.get("exact_cue", 0.0)),
+                        "brain_graph_spread": float(breakdown.get("brain_graph_spread", 0.0)),
+                        "dormancy_penalty": float(breakdown.get("dormancy_penalty", 0.0)),
+                        "contradiction_penalty": float(breakdown.get("contradiction_penalty", 0.0)),
+                    },
+                }
+            )
+        return items
+
+    def _should_include_trace(self, include_trace: bool) -> bool:
+        return bool(include_trace or self.pipeline.default_include_trace)
+
+    def _build_context_artifacts(
+        self,
+        *,
+        state: EngineState,
+        query: str,
+        search_filters: SearchFilters,
+        limit: int,
+        max_tokens: int,
+        include_debug: bool,
+        include_trace: bool,
+        context_policy: str,
+    ) -> dict[str, Any]:
+        projection_status = ProjectionStatus.from_dict(state.projections.get("status"))
+        intent = self._classify_query_intent(query)
+        ranked = self._rank_records(state=state, query=query, search_filters=search_filters, intent=intent)
+        sections = self._empty_context_sections()
+        citations: dict[str, dict[str, Any]] = {}
+        selected_ranked: list[tuple[float, MemoryRecord, dict[str, float]]] = []
+        selected_memory_ids: list[str] = []
+        selected_fact_keys: set[str] = set()
+        selected_values: set[tuple[str, str]] = set()
+        selected_non_episodic_evidence_ids: set[str] = set()
+        dropped_duplicate_count = 0
+        dropped_budget_count = 0
+        policy = self._context_policy_settings(context_policy=context_policy, limit=limit)
+        canonical_match_counts = self._canonical_match_counts(ranked)
+
+        working_memory_ids: list[str] = []
+        if self._brain_enabled():
+            for score, record, breakdown in self._working_memory_candidates(ranked=ranked):
+                if len(working_memory_ids) >= min(policy["max_total"], 3, max(int(self.brain.working_memory_size), 1)):
+                    break
+                if record.state == MemoryState.DORMANT.value and not self._should_reactivate_dormant(
+                    record=record,
+                    breakdown=breakdown,
+                    canonical_match_counts=canonical_match_counts,
+                ):
+                    continue
+
+                context_item = self._context_item_payload(state=state, record=record, score=score, breakdown=breakdown)
+                fact_key = self._canonical_context_fact_key(
+                    record=record,
+                    section_name="working_memory",
+                    context_item=context_item,
+                )
+                normalized_value = normalize_text(context_item["value"]).lower()
+                evidence_ids = set(context_item["citation_evidence_ids"])
+                value_key = ("working_memory", normalized_value)
+                if fact_key in selected_fact_keys or (normalized_value and value_key in selected_values):
+                    dropped_duplicate_count += 1
+                    continue
+
+                trial_sections = {name: list(items) for name, items in sections.items()}
+                trial_sections["working_memory"].append(context_item)
+                trial_citations = dict(citations)
+                self._add_context_citations(
+                    citations=trial_citations,
+                    state=state,
+                    record=record,
+                    context_item=context_item,
+                )
+                trial_grounding = self._format_context_sections(
+                    sections=trial_sections,
+                    intent=intent,
+                    context_policy=context_policy,
+                    citations=list(trial_citations.values()),
+                )
+                trial_tokens = self._estimate_tokens(trial_grounding)
+                if selected_memory_ids and trial_tokens > max_tokens:
+                    dropped_budget_count += 1
+                    continue
+
+                sections = trial_sections
+                citations = trial_citations
+                selected_ranked.append((score, record, breakdown))
+                selected_memory_ids.append(record.record_id)
+                working_memory_ids.append(record.record_id)
+                selected_fact_keys.add(fact_key)
+                if normalized_value:
+                    selected_values.add(value_key)
+                if record.layer != MemoryLayer.EPISODIC.value:
+                    selected_non_episodic_evidence_ids.update(evidence_ids)
+
+        selection_candidates = sorted(
+            ranked,
+            key=lambda item: (self._selection_priority(record=item[1], intent=intent), item[0]),
+            reverse=True,
+        )
+
+        for score, record, breakdown in selection_candidates:
+            if len(selected_memory_ids) >= policy["max_total"]:
+                continue
+            if record.record_id in selected_memory_ids:
+                continue
+
+            section_name = self._section_for_record(record=record, intent=intent)
+            if len(sections[section_name]) >= policy["max_per_section"]:
+                continue
+
+            if record.state == MemoryState.DORMANT.value and not self._should_reactivate_dormant(
+                record=record,
+                breakdown=breakdown,
+                canonical_match_counts=canonical_match_counts,
+            ):
+                continue
+
+            context_item = self._context_item_payload(state=state, record=record, score=score, breakdown=breakdown)
+            fact_key = self._canonical_context_fact_key(record=record, section_name=section_name, context_item=context_item)
+            normalized_value = normalize_text(context_item["value"]).lower()
+            evidence_ids = set(context_item["citation_evidence_ids"])
+
+            value_key = (section_name, normalized_value)
+            if fact_key in selected_fact_keys or (normalized_value and value_key in selected_values):
+                dropped_duplicate_count += 1
+                continue
+
+            if (
+                record.layer == MemoryLayer.EPISODIC.value
+                and intent != "episodic"
+                and evidence_ids.intersection(selected_non_episodic_evidence_ids)
+            ):
+                dropped_duplicate_count += 1
+                continue
+
+            trial_sections = {name: list(items) for name, items in sections.items()}
+            trial_sections[section_name].append(context_item)
+            trial_citations = dict(citations)
+            self._add_context_citations(
+                citations=trial_citations,
+                state=state,
+                record=record,
+                context_item=context_item,
+            )
+            trial_grounding = self._format_context_sections(
+                sections=trial_sections,
+                intent=intent,
+                context_policy=context_policy,
+                citations=list(trial_citations.values()),
+            )
+            trial_tokens = self._estimate_tokens(trial_grounding)
+            if selected_memory_ids and trial_tokens > max_tokens:
+                dropped_budget_count += 1
+                continue
+
+            sections = trial_sections
+            citations = trial_citations
+            selected_ranked.append((score, record, breakdown))
+            selected_memory_ids.append(record.record_id)
+            selected_fact_keys.add(fact_key)
+            if normalized_value:
+                selected_values.add(value_key)
+            if record.layer != MemoryLayer.EPISODIC.value:
+                selected_non_episodic_evidence_ids.update(evidence_ids)
+
+        grounding = self._format_context_sections(
+            sections=sections,
+            intent=intent,
+            context_policy=context_policy,
+            citations=list(citations.values()),
+        )
+        prompt_tokens_estimate = self._estimate_tokens(grounding) if grounding else 0
+        omitted_memory_ids = [
+            record.record_id
+            for _, record, _ in ranked
+            if record.record_id not in selected_memory_ids
         ]
-        lines = [f"Intent: {memory_pack.intent}"]
-        for title, items in sections:
+
+        debug: dict[str, Any] = {}
+        if include_debug:
+            debug = {
+                "intent": intent,
+                "candidate_count": len(ranked),
+                "included_memory_ids": list(selected_memory_ids),
+                "max_tokens": max_tokens,
+                "used_tokens": prompt_tokens_estimate,
+                "prompt_tokens_estimate": prompt_tokens_estimate,
+                "selected_count": len(selected_memory_ids),
+                "dropped_duplicate_count": dropped_duplicate_count,
+                "dropped_budget_count": dropped_budget_count,
+                "omitted_memory_ids": omitted_memory_ids,
+                "grounding_preview": grounding,
+                "filters": search_filters.to_dict(),
+            }
+
+        trace: dict[str, Any] = {}
+        if include_trace:
+            trace = {
+                "query": query,
+                "intent": intent,
+                "pipeline": self.pipeline.describe(),
+                "ranking": {
+                    "candidate_count": len(ranked),
+                    "reranker_applied": self.reranker is not None,
+                    "results": self._ranking_trace_items(state=state, ranked=ranked),
+                },
+                "activation": {
+                    "mode": self.brain.mode,
+                    "results": self._activation_trace_items(state=state, ranked=ranked),
+                },
+                "working_memory": {
+                    "selected_memory_ids": list(working_memory_ids),
+                    "items": list(sections["working_memory"]),
+                },
+                "consolidation": {
+                    "last_run": dict(state.projections.get("consolidation") or {}),
+                    "dormancy_transitions": [],
+                },
+                "grounding": {
+                    "context_policy": context_policy,
+                    "selected_memory_ids": list(selected_memory_ids),
+                    "omitted_memory_ids": omitted_memory_ids,
+                    "prompt_tokens_estimate": prompt_tokens_estimate,
+                    "dropped_duplicate_count": dropped_duplicate_count,
+                    "dropped_budget_count": dropped_budget_count,
+                    "section_counts": {name: len(items) for name, items in sections.items()},
+                    "citation_count": len(citations),
+                },
+            }
+
+        memory_pack = ContextPack(
+            query=query,
+            scope=search_filters.scope or MemoryScope(),
+            intent=intent,
+            working_memory=sections["working_memory"],
+            profile=sections["profile"],
+            preferences=sections["preferences"],
+            relationships=sections["relationships"],
+            recent_episodes=sections["recent_episodes"],
+            tool_observations=sections["tool_observations"],
+            citations=list(citations.values()),
+            projection_status=projection_status,
+            debug=debug,
+            trace=trace,
+        )
+        return {
+            "memory_pack": memory_pack,
+            "grounding": grounding,
+            "ranked": ranked,
+            "selected_ranked": selected_ranked,
+            "selected_memory_ids": list(selected_memory_ids),
+            "working_memory_ids": list(working_memory_ids),
+            "projection_status": projection_status,
+        }
+
+    def _empty_context_sections(self) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "working_memory": [],
+            "profile": [],
+            "preferences": [],
+            "relationships": [],
+            "recent_episodes": [],
+            "tool_observations": [],
+        }
+
+    def _context_policy_settings(self, *, context_policy: str, limit: int) -> dict[str, int]:
+        normalized_policy = context_policy if context_policy in {"compact", "balanced", "verbose"} else "compact"
+        defaults = {
+            "compact": {"max_total": 6, "max_per_section": 2},
+            "balanced": {"max_total": 8, "max_per_section": 3},
+            "verbose": {"max_total": max(1, limit), "max_per_section": max(1, limit)},
+        }[normalized_policy]
+        return {
+            "max_total": max(1, min(limit, defaults["max_total"])),
+            "max_per_section": max(1, min(limit, defaults["max_per_section"])),
+        }
+
+    def _working_memory_candidates(
+        self,
+        *,
+        ranked: list[tuple[float, MemoryRecord, dict[str, float]]],
+    ) -> list[tuple[float, MemoryRecord, dict[str, float]]]:
+        if not self._brain_enabled():
+            return []
+        return sorted(
+            ranked,
+            key=lambda item: (item[2].get("activation", 0.0), item[0]),
+            reverse=True,
+        )
+
+    def _selection_priority(self, *, record: MemoryRecord, intent: str) -> int:
+        priority = 0
+        if record.source_type in (EventType.TOOL_RESULT.value, EventType.TOOL_CALL.value):
+            priority += 5 if intent == "tool" else 2
+        if record.layer == MemoryLayer.EPISODIC.value and intent == "episodic":
+            priority += 6
+        elif record.layer != MemoryLayer.EPISODIC.value:
+            priority += 4
+        if intent == "profile" and record.kind == MemoryKind.PROFILE_ATTRIBUTE.value:
+            priority += 2
+        if intent == "preference" and record.kind == MemoryKind.PREFERENCE.value:
+            priority += 2
+        if intent == "relationship" and record.kind == MemoryKind.RELATION.value:
+            priority += 2
+        return priority
+
+    def _canonical_context_fact_key(
+        self,
+        *,
+        record: MemoryRecord,
+        section_name: str,
+        context_item: dict[str, Any],
+    ) -> str:
+        normalized_value = normalize_text(context_item["value"]).lower()
+        evidence_key = ",".join(sorted(context_item["citation_evidence_ids"]))
+        if record.layer == MemoryLayer.EPISODIC.value:
+            return f"{section_name}:{record.layer}:{evidence_key or normalized_value}"
+        return f"{section_name}:{record.kind}:{record.key.lower()}:{normalized_value}"
+
+    def _add_context_citations(
+        self,
+        *,
+        citations: dict[str, dict[str, Any]],
+        state: EngineState,
+        record: MemoryRecord,
+        context_item: dict[str, Any],
+    ) -> None:
+        for evidence_id in context_item["citation_evidence_ids"]:
+            evidence = state.evidence.get(evidence_id)
+            if evidence is None or evidence_id in citations:
+                continue
+            citations[evidence_id] = {
+                "evidence_id": evidence.evidence_id,
+                "memory_id": record.record_id,
+                "summary": summarize_text(evidence.text, max_words=18),
+                "text": evidence.text,
+                "event_type": evidence.event_type,
+                "source_type": evidence.source_type,
+                "scope": evidence.scope.to_dict(),
+                "occurred_at": evidence.occurred_at or evidence.created_at,
+            }
+
+    def _format_context_pack(self, memory_pack: ContextPack, context_policy: str = "compact") -> str:
+        return self._format_context_sections(
+            sections={
+                "working_memory": memory_pack.working_memory,
+                "profile": memory_pack.profile,
+                "preferences": memory_pack.preferences,
+                "relationships": memory_pack.relationships,
+                "recent_episodes": memory_pack.recent_episodes,
+                "tool_observations": memory_pack.tool_observations,
+            },
+            intent=memory_pack.intent,
+            context_policy=context_policy,
+            citations=memory_pack.citations,
+        )
+
+    def _format_context_sections(
+        self,
+        *,
+        sections: dict[str, list[dict[str, Any]]],
+        intent: str,
+        context_policy: str,
+        citations: list[dict[str, Any]],
+    ) -> str:
+        ordered_sections = [
+            ("Working Memory", sections["working_memory"]),
+            ("Profile", sections["profile"]),
+            ("Preferences", sections["preferences"]),
+            ("Relationships", sections["relationships"]),
+            ("Recent Episodes", sections["recent_episodes"]),
+            ("Tool Observations", sections["tool_observations"]),
+        ]
+        lines = [f"Intent: {intent}"]
+
+        if context_policy == "compact":
+            for title, items in ordered_sections:
+                if not items:
+                    continue
+                compact_items: list[str] = []
+                for item in items:
+                    compact_item = self._compact_context_item(item)
+                    if compact_item:
+                        compact_items.append(compact_item)
+                if compact_items:
+                    lines.append(f"{title}: {'; '.join(compact_items)}")
+            return flatten_text_parts(lines)
+
+        for title, items in ordered_sections:
             if not items:
                 continue
             lines.append(f"{title}:")
             for item in items:
-                lines.append(f"- {item['summary']} (memory_id={item['memory_id']})")
-        if memory_pack.citations:
+                line = f"- {item['summary']}"
+                if context_policy == "verbose":
+                    line = f"{line} (memory_id={item['memory_id']})"
+                lines.append(line)
+
+        if context_policy == "verbose" and citations:
             lines.append("Citations:")
-            for citation in memory_pack.citations[:6]:
+            for citation in citations[:6]:
                 lines.append(f"- {citation['evidence_id']}: {citation['summary']}")
         return flatten_text_parts(lines)
+
+    def _compact_context_item(self, item: dict[str, Any]) -> str:
+        summary = normalize_text(item.get("summary", ""))
+        if not summary:
+            return ""
+        if ":" not in summary:
+            return summary
+        prefix, remainder = summary.split(":", 1)
+        prefix = normalize_text(prefix).lower().replace(" ", "_")
+        remainder = normalize_text(remainder)
+        if prefix in {"episode", "tool_result", "tool_call", "assistant_action"}:
+            return remainder
+        return f"{prefix}={remainder}" if remainder else prefix
 
     def _format_tool_events(self, tool_events: list[dict[str, Any]]) -> list[str]:
         lines: list[str] = []
@@ -1739,9 +3068,26 @@ class MemoryEngine:
             lines.append(f"- {name}: {summarize_text(text, max_words=18)}")
         return lines
 
+    def _refresh_context_pack_items(self, *, state: EngineState, memory_pack: ContextPack) -> None:
+        sections = (
+            memory_pack.working_memory,
+            memory_pack.profile,
+            memory_pack.preferences,
+            memory_pack.relationships,
+            memory_pack.recent_episodes,
+            memory_pack.tool_observations,
+        )
+        for items in sections:
+            for item in items:
+                record = state.memories.get(str(item.get("memory_id", "")))
+                if record is None:
+                    continue
+                item["state"] = record.state
+
     def _context_pack_has_content(self, memory_pack: ContextPack) -> bool:
         return any(
             (
+                memory_pack.working_memory,
                 memory_pack.profile,
                 memory_pack.preferences,
                 memory_pack.relationships,

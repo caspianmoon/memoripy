@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 from .engine import MemoryEngine
+from .pipeline import MemoryPipelineConfig
 from .repository import BaseRepository, FileMemoryRepository, InMemoryRepository
 
 
@@ -18,6 +19,14 @@ class _ChatCompletions:
 class _ChatNamespace:
     def __init__(self, client: "MemoryClient"):
         self.completions = _ChatCompletions(client)
+
+
+class _MaintenanceNamespace:
+    def __init__(self, client: "MemoryClient"):
+        self._client = client
+
+    def consolidate(self, **kwargs: Any) -> dict[str, Any]:
+        return self._client._engine.consolidate(**kwargs)
 
 
 class _ContextNamespace:
@@ -36,15 +45,18 @@ class MemoryClient:
         chat_model: Any | None = None,
         embedding_model: Any | None = None,
         extractor: Any | None = None,
+        pipeline: MemoryPipelineConfig | None = None,
     ):
         self._engine = MemoryEngine(
             repository=repository or InMemoryRepository(),
             chat_model=chat_model,
             embedding_model=embedding_model,
             extractor=extractor,
+            pipeline=pipeline,
         )
         self.chat = _ChatNamespace(self)
         self.context = _ContextNamespace(self)
+        self.maintenance = _MaintenanceNamespace(self)
 
     @classmethod
     def from_path(
@@ -54,12 +66,14 @@ class MemoryClient:
         chat_model: Any | None = None,
         embedding_model: Any | None = None,
         extractor: Any | None = None,
+        pipeline: MemoryPipelineConfig | None = None,
     ) -> "MemoryClient":
         return cls(
             repository=FileMemoryRepository(root_path),
             chat_model=chat_model,
             embedding_model=embedding_model,
             extractor=extractor,
+            pipeline=pipeline,
         )
 
     @property
@@ -116,6 +130,14 @@ class _AsyncChatNamespace:
         self.completions = _AsyncChatCompletions(client)
 
 
+class _AsyncMaintenanceNamespace:
+    def __init__(self, client: "AsyncMemoryClient"):
+        self._client = client
+
+    async def consolidate(self, **kwargs: Any) -> dict[str, Any]:
+        return await asyncio.to_thread(self._client._sync.maintenance.consolidate, **kwargs)
+
+
 class _AsyncContextNamespace:
     def __init__(self, client: "AsyncMemoryClient"):
         self._client = client
@@ -129,6 +151,7 @@ class AsyncMemoryClient:
         self._sync = sync_client or MemoryClient(**kwargs)
         self.chat = _AsyncChatNamespace(self)
         self.context = _AsyncContextNamespace(self)
+        self.maintenance = _AsyncMaintenanceNamespace(self)
 
     @classmethod
     def from_path(cls, root_path: str, **kwargs: Any) -> "AsyncMemoryClient":

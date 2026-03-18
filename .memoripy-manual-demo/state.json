@@ -1,0 +1,975 @@
+{
+  "evidence": {
+    "evidence_22e873a79b2f0b99003836f7": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "22e873a79b2f0b99003836f7ce1df4f5182727061808d5b5676ca9928d1ff8da",
+      "created_at": "2026-03-18T03:28:35.416553Z",
+      "event_type": "message",
+      "evidence_id": "evidence_22e873a79b2f0b99003836f7",
+      "metadata": {},
+      "modality": "text",
+      "name": "user",
+      "occurred_at": null,
+      "role": "user",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "My name is Khazar"
+    },
+    "evidence_4e9859786208fa5bd76cbc6a": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "4e9859786208fa5bd76cbc6ad2a9a6c930ee4a0896f19abc00ad1d9539695c49",
+      "created_at": "2026-03-18T03:28:35.416749Z",
+      "event_type": "message",
+      "evidence_id": "evidence_4e9859786208fa5bd76cbc6a",
+      "metadata": {},
+      "modality": "text",
+      "name": "user",
+      "occurred_at": null,
+      "role": "user",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "I live in Istanbul"
+    },
+    "evidence_61b2745389da48d3257b94bc": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "61b2745389da48d3257b94bc3ac41fe1d363d4a3fbf42ba2523879356ac0e32b",
+      "created_at": "2026-03-18T03:28:35.416782Z",
+      "event_type": "tool_result",
+      "evidence_id": "evidence_61b2745389da48d3257b94bc",
+      "metadata": {},
+      "modality": "text",
+      "name": "calendar.lookup",
+      "occurred_at": null,
+      "role": null,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "tool_result",
+      "text": "Dinner with Mert is tomorrow at 7 PM"
+    },
+    "evidence_783bb609ead22edfdf82d8a7": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "783bb609ead22edfdf82d8a7b3b06007d9d2d324cc9645908dec887ff0c7098b",
+      "created_at": "2026-03-18T03:28:35.416772Z",
+      "event_type": "message",
+      "evidence_id": "evidence_783bb609ead22edfdf82d8a7",
+      "metadata": {},
+      "modality": "text",
+      "name": "assistant",
+      "occurred_at": null,
+      "role": "assistant",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "I will remember that."
+    },
+    "evidence_a6cc918b39f6c709eea9b0bc": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "a6cc918b39f6c709eea9b0bc34d76c619365e72529c771a6d336a69b2b3e6a1c",
+      "created_at": "2026-03-18T03:28:35.425407Z",
+      "event_type": "message",
+      "evidence_id": "evidence_a6cc918b39f6c709eea9b0bc",
+      "metadata": {},
+      "modality": "text",
+      "name": "user",
+      "occurred_at": null,
+      "role": "user",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "I moved to Berlin last month"
+    },
+    "evidence_e38c8d2fe601c3dd0bb7373b": {
+      "asset_ref": null,
+      "attributes": {},
+      "content_hash": "e38c8d2fe601c3dd0bb7373bc33ddf392b98864c5c40c88515350a1eef214a74",
+      "created_at": "2026-03-18T03:28:35.416763Z",
+      "event_type": "message",
+      "evidence_id": "evidence_e38c8d2fe601c3dd0bb7373b",
+      "metadata": {},
+      "modality": "text",
+      "name": "user",
+      "occurred_at": null,
+      "role": "user",
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "source_type": "message",
+      "text": "My favorite city is Tokyo"
+    }
+  },
+  "idempotency": {
+    "capture:manual-intro-1": {
+      "events": [
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_22e873a79b2f0b99003836f7",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_4e9859786208fa5bd76cbc6a",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_e38c8d2fe601c3dd0bb7373b",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_783bb609ead22edfdf82d8a7",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "event_type": "tool_result",
+          "evidence_id": "evidence_61b2745389da48d3257b94bc",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "tool_result",
+          "type": "evidence_added"
+        },
+        {
+          "kind": "profile_attribute",
+          "layer": "semantic",
+          "record_id": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_01e562e8843e450089d639906723d621"
+        },
+        {
+          "kind": "profile_attribute",
+          "layer": "semantic",
+          "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_8b620f354dd342c68a0b773fa7e7fd87"
+        },
+        {
+          "kind": "preference",
+          "layer": "semantic",
+          "record_id": "memory_3f59a9768fc443e296ef06314dab8574",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_58a94ed3a7964bffb4b28f57f82265ad"
+        },
+        {
+          "kind": "episodic_summary",
+          "layer": "episodic",
+          "record_id": "memory_c9d072de42eb4b01b5cecf6448378f85",
+          "state": "active",
+          "type": "memory_created",
+          "version_id": "version_b30b89982e8f4e068b67dfe2240e08a3"
+        }
+      ],
+      "result": {
+        "created": [
+          {
+            "record_id": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+            "summary": "Name: Khazar",
+            "version_id": "version_01e562e8843e450089d639906723d621"
+          },
+          {
+            "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+            "summary": "Location: Istanbul",
+            "version_id": "version_8b620f354dd342c68a0b773fa7e7fd87"
+          },
+          {
+            "record_id": "memory_3f59a9768fc443e296ef06314dab8574",
+            "summary": "Favorite city: Tokyo",
+            "version_id": "version_58a94ed3a7964bffb4b28f57f82265ad"
+          },
+          {
+            "record_id": "memory_c9d072de42eb4b01b5cecf6448378f85",
+            "summary": "Tool result: Dinner with Mert is tomorrow at 7 PM",
+            "version_id": "version_b30b89982e8f4e068b67dfe2240e08a3"
+          }
+        ],
+        "episodic_memory_ids": [
+          "memory_c9d072de42eb4b01b5cecf6448378f85"
+        ],
+        "evidence_ids": [
+          "evidence_22e873a79b2f0b99003836f7",
+          "evidence_4e9859786208fa5bd76cbc6a",
+          "evidence_e38c8d2fe601c3dd0bb7373b",
+          "evidence_783bb609ead22edfdf82d8a7",
+          "evidence_61b2745389da48d3257b94bc"
+        ],
+        "id": "op_823f0e985527480cb5278ae10980a5fb",
+        "memory_ids": [
+          "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+          "memory_3528d1a05d8a4938bc18aceb974b27a6",
+          "memory_3f59a9768fc443e296ef06314dab8574",
+          "memory_c9d072de42eb4b01b5cecf6448378f85"
+        ],
+        "noop": [],
+        "pending": [],
+        "projection_status": {
+          "graph_current": true,
+          "last_projected_at": "2026-03-18T03:28:35.417443Z",
+          "lexical_current": true,
+          "vector_current": true
+        },
+        "scope": {
+          "agent_id": "jarvis",
+          "run_id": "session-1",
+          "user_id": "demo-user"
+        },
+        "semantic_memory_ids": [
+          "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+          "memory_3528d1a05d8a4938bc18aceb974b27a6",
+          "memory_3f59a9768fc443e296ef06314dab8574"
+        ],
+        "strategy": "v3",
+        "updated": []
+      }
+    },
+    "capture:manual-move-1": {
+      "events": [
+        {
+          "event_type": "message",
+          "evidence_id": "evidence_a6cc918b39f6c709eea9b0bc",
+          "modality": "text",
+          "scope": {
+            "agent_id": "jarvis",
+            "run_id": "session-1",
+            "user_id": "demo-user"
+          },
+          "source_type": "message",
+          "type": "evidence_added"
+        },
+        {
+          "action": "SUPERSEDE",
+          "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+          "state": "active",
+          "type": "memory_version_written",
+          "version_id": "version_5b0d0c90ac4741adafaec633ffeabe6d"
+        }
+      ],
+      "result": {
+        "created": [],
+        "episodic_memory_ids": [],
+        "evidence_ids": [
+          "evidence_a6cc918b39f6c709eea9b0bc"
+        ],
+        "id": "op_2b4b73143ffa45b88e84c83169374846",
+        "memory_ids": [
+          "memory_3528d1a05d8a4938bc18aceb974b27a6"
+        ],
+        "noop": [],
+        "pending": [],
+        "projection_status": {
+          "graph_current": true,
+          "last_projected_at": "2026-03-18T03:28:35.425645Z",
+          "lexical_current": true,
+          "vector_current": true
+        },
+        "scope": {
+          "agent_id": "jarvis",
+          "run_id": "session-1",
+          "user_id": "demo-user"
+        },
+        "semantic_memory_ids": [
+          "memory_3528d1a05d8a4938bc18aceb974b27a6"
+        ],
+        "strategy": "v3",
+        "updated": [
+          {
+            "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+            "summary": "Location: Berlin last month",
+            "version_id": "version_5b0d0c90ac4741adafaec633ffeabe6d"
+          }
+        ]
+      }
+    }
+  },
+  "lookup": {
+    "453acaa7721e9d29e57a33d315c10b59f51d64a05653663f9eab94f2afdab86d": "memory_3f59a9768fc443e296ef06314dab8574",
+    "630c3e78cb61f2ef70fdae3960074b9b4cd53f3e492cc7db19f222c5bf19feeb": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+    "e1fee673d3c88638e382a0b35f55042494a6f0f5f0018cf93fef37fd94dc44bc": "memory_3528d1a05d8a4938bc18aceb974b27a6"
+  },
+  "memories": {
+    "memory_2d416f2b2d094c26a32f816b9e5c00d1": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_22e873a79b2f0b99003836f7"
+      ],
+      "confidence": 0.94,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.416873Z",
+      "current_version_id": "version_01e562e8843e450089d639906723d621",
+      "embedding": [
+        -0.14907119849998599,
+        0.14907119849998599,
+        -0.14907119849998599,
+        -0.29814239699997197,
+        0.0,
+        -0.14907119849998599,
+        0.14907119849998599,
+        0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        -0.14907119849998599,
+        0.0,
+        0.14907119849998599,
+        -0.14907119849998599,
+        0.4472135954999579,
+        0.0,
+        0.14907119849998599,
+        -0.29814239699997197,
+        0.0,
+        0.0,
+        -0.29814239699997197,
+        -0.14907119849998599,
+        0.29814239699997197,
+        0.0,
+        0.0,
+        0.0,
+        -0.29814239699997197,
+        0.14907119849998599,
+        0.0,
+        0.0,
+        -0.14907119849998599
+      ],
+      "entity_names": [
+        "My",
+        "Khazar"
+      ],
+      "evidence_ids": [
+        "evidence_22e873a79b2f0b99003836f7"
+      ],
+      "key": "name",
+      "kind": "profile_attribute",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T03:28:35.416873Z",
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "name",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "record_id": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+      "salience": 0.9,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "search_text": "semantic message profile_attribute name Name: Khazar Khazar name My Khazar",
+      "source_type": "message",
+      "state": "active",
+      "summary": "Name: Khazar",
+      "tags": [
+        "name"
+      ],
+      "updated_at": "2026-03-18T03:28:35.416873Z",
+      "value": "Khazar",
+      "version_ids": [
+        "version_01e562e8843e450089d639906723d621"
+      ]
+    },
+    "memory_3528d1a05d8a4938bc18aceb974b27a6": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_4e9859786208fa5bd76cbc6a",
+        "evidence_a6cc918b39f6c709eea9b0bc"
+      ],
+      "confidence": 0.94,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.417037Z",
+      "current_version_id": "version_5b0d0c90ac4741adafaec633ffeabe6d",
+      "embedding": [
+        -0.36650833306891567,
+        0.12216944435630522,
+        -0.24433888871261045,
+        -0.12216944435630522,
+        0.12216944435630522,
+        -0.12216944435630522,
+        0.0,
+        0.12216944435630522,
+        -0.12216944435630522,
+        -0.24433888871261045,
+        0.12216944435630522,
+        -0.12216944435630522,
+        -0.24433888871261045,
+        -0.12216944435630522,
+        -0.12216944435630522,
+        0.0,
+        0.24433888871261045,
+        0.0,
+        0.0,
+        0.0,
+        0.24433888871261045,
+        -0.24433888871261045,
+        0.0,
+        0.12216944435630522,
+        0.0,
+        0.0,
+        0.12216944435630522,
+        -0.12216944435630522,
+        0.12216944435630522,
+        0.24433888871261045,
+        -0.4886777774252209,
+        0.0
+      ],
+      "entity_names": [
+        "Istanbul",
+        "Berlin"
+      ],
+      "evidence_ids": [
+        "evidence_4e9859786208fa5bd76cbc6a",
+        "evidence_a6cc918b39f6c709eea9b0bc"
+      ],
+      "key": "location",
+      "kind": "profile_attribute",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T03:28:35.425487Z",
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "location",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+      "salience": 0.9,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "search_text": "semantic message profile_attribute location Location: Berlin last month Berlin last month location Istanbul Berlin",
+      "source_type": "message",
+      "state": "active",
+      "summary": "Location: Berlin last month",
+      "tags": [
+        "location"
+      ],
+      "updated_at": "2026-03-18T03:28:35.425487Z",
+      "value": "Berlin last month",
+      "version_ids": [
+        "version_8b620f354dd342c68a0b773fa7e7fd87",
+        "version_5b0d0c90ac4741adafaec633ffeabe6d"
+      ]
+    },
+    "memory_3f59a9768fc443e296ef06314dab8574": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_e38c8d2fe601c3dd0bb7373b"
+      ],
+      "confidence": 0.9,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.417145Z",
+      "current_version_id": "version_58a94ed3a7964bffb4b28f57f82265ad",
+      "embedding": [
+        -0.3611575592573076,
+        0.1203858530857692,
+        0.1203858530857692,
+        -0.2407717061715384,
+        -0.1203858530857692,
+        0.0,
+        -0.2407717061715384,
+        0.2407717061715384,
+        -0.1203858530857692,
+        0.0,
+        0.0,
+        0.1203858530857692,
+        0.0,
+        -0.1203858530857692,
+        -0.2407717061715384,
+        0.1203858530857692,
+        0.0,
+        0.0,
+        0.1203858530857692,
+        -0.1203858530857692,
+        -0.2407717061715384,
+        -0.3611575592573076,
+        0.1203858530857692,
+        0.1203858530857692,
+        0.2407717061715384,
+        -0.2407717061715384,
+        0.1203858530857692,
+        -0.1203858530857692,
+        -0.2407717061715384,
+        0.1203858530857692,
+        -0.2407717061715384,
+        -0.1203858530857692
+      ],
+      "entity_names": [
+        "My",
+        "Tokyo"
+      ],
+      "evidence_ids": [
+        "evidence_e38c8d2fe601c3dd0bb7373b"
+      ],
+      "key": "favorite_city",
+      "kind": "preference",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T03:28:35.417145Z",
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "favorite",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "record_id": "memory_3f59a9768fc443e296ef06314dab8574",
+      "salience": 0.88,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "search_text": "semantic message preference favorite_city Favorite city: Tokyo Tokyo preference city My Tokyo",
+      "source_type": "message",
+      "state": "active",
+      "summary": "Favorite city: Tokyo",
+      "tags": [
+        "preference",
+        "city"
+      ],
+      "updated_at": "2026-03-18T03:28:35.417145Z",
+      "value": "Tokyo",
+      "version_ids": [
+        "version_58a94ed3a7964bffb4b28f57f82265ad"
+      ]
+    },
+    "memory_c9d072de42eb4b01b5cecf6448378f85": {
+      "access_count": 0,
+      "citation_evidence_ids": [
+        "evidence_61b2745389da48d3257b94bc"
+      ],
+      "confidence": 0.919,
+      "confirmation_count": 1,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.417279Z",
+      "current_version_id": "version_b30b89982e8f4e068b67dfe2240e08a3",
+      "embedding": [
+        0.12309149097933272,
+        -0.12309149097933272,
+        0.24618298195866545,
+        -0.12309149097933272,
+        -0.24618298195866545,
+        0.0,
+        -0.24618298195866545,
+        -0.24618298195866545,
+        0.24618298195866545,
+        0.12309149097933272,
+        0.12309149097933272,
+        0.24618298195866545,
+        0.12309149097933272,
+        0.0,
+        0.0,
+        0.12309149097933272,
+        -0.12309149097933272,
+        0.0,
+        0.0,
+        0.24618298195866545,
+        0.12309149097933272,
+        0.24618298195866545,
+        -0.3692744729379982,
+        0.12309149097933272,
+        0.24618298195866545,
+        0.12309149097933272,
+        -0.24618298195866545,
+        0.24618298195866545,
+        0.12309149097933272,
+        0.0,
+        -0.12309149097933272,
+        0.0
+      ],
+      "entity_names": [
+        "Dinner",
+        "Mert"
+      ],
+      "evidence_ids": [
+        "evidence_61b2745389da48d3257b94bc"
+      ],
+      "key": "episode_24eab03c678b34c9",
+      "kind": "episodic_summary",
+      "last_accessed_at": null,
+      "last_confirmed_at": "2026-03-18T03:28:35.417279Z",
+      "layer": "episodic",
+      "metadata": {
+        "event_type": "tool_result",
+        "modality": "text",
+        "name": "calendar.lookup",
+        "source": "episodic",
+        "source_type": "tool_result"
+      },
+      "record_id": "memory_c9d072de42eb4b01b5cecf6448378f85",
+      "salience": 0.82,
+      "scope": {
+        "agent_id": "jarvis",
+        "run_id": "session-1",
+        "user_id": "demo-user"
+      },
+      "search_text": "episodic tool_result episodic_summary episode_24eab03c678b34c9 Tool result: Dinner with Mert is tomorrow at 7 PM Dinner with Mert is tomorrow at 7 PM episodic text tool_result Dinner Mert",
+      "source_type": "tool_result",
+      "state": "active",
+      "summary": "Tool result: Dinner with Mert is tomorrow at 7 PM",
+      "tags": [
+        "episodic",
+        "text",
+        "tool_result"
+      ],
+      "updated_at": "2026-03-18T03:28:35.417279Z",
+      "value": "Dinner with Mert is tomorrow at 7 PM",
+      "version_ids": [
+        "version_b30b89982e8f4e068b67dfe2240e08a3"
+      ]
+    }
+  },
+  "projections": {
+    "graph": {
+      "memory_2d416f2b2d094c26a32f816b9e5c00d1": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "memory_3f59a9768fc443e296ef06314dab8574": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1"
+      ]
+    },
+    "lexical": {
+      "at": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "berlin": [
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "city": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "dinner": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "episode_24eab03c678b34c9": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "episodic": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "episodic_summary": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "favorite": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "favorite_city": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "is": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "istanbul": [
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "khazar": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1"
+      ],
+      "last": [
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "location": [
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "mert": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "message": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+        "memory_3528d1a05d8a4938bc18aceb974b27a6",
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "month": [
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "my": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "name": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1"
+      ],
+      "pm": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "preference": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "profile_attribute": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+        "memory_3528d1a05d8a4938bc18aceb974b27a6"
+      ],
+      "result": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "semantic": [
+        "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+        "memory_3528d1a05d8a4938bc18aceb974b27a6",
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "text": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "tokyo": [
+        "memory_3f59a9768fc443e296ef06314dab8574"
+      ],
+      "tomorrow": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "tool": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "tool_result": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ],
+      "with": [
+        "memory_c9d072de42eb4b01b5cecf6448378f85"
+      ]
+    },
+    "status": {
+      "graph_current": true,
+      "last_projected_at": "2026-03-18T03:28:35.425645Z",
+      "lexical_current": true,
+      "vector_current": true
+    }
+  },
+  "relations": {
+    "edge_a50571c3d4ef791a": {
+      "edge_id": "edge_a50571c3d4ef791a",
+      "metadata": {
+        "shared_entities": [
+          "my"
+        ]
+      },
+      "relation_type": "shared_entity",
+      "source_record_id": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+      "target_record_id": "memory_3f59a9768fc443e296ef06314dab8574",
+      "weight": 1.0
+    }
+  },
+  "schema_version": 3,
+  "versions": {
+    "version_01e562e8843e450089d639906723d621": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_22e873a79b2f0b99003836f7"
+      ],
+      "confidence": 0.94,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.416873Z",
+      "evidence_ids": [
+        "evidence_22e873a79b2f0b99003836f7"
+      ],
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "name",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "name"
+      ],
+      "record_id": "memory_2d416f2b2d094c26a32f816b9e5c00d1",
+      "salience": 0.9,
+      "source_type": "message",
+      "state": "active",
+      "summary": "Name: Khazar",
+      "supersedes_version_id": null,
+      "value": "Khazar",
+      "version_id": "version_01e562e8843e450089d639906723d621"
+    },
+    "version_58a94ed3a7964bffb4b28f57f82265ad": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_e38c8d2fe601c3dd0bb7373b"
+      ],
+      "confidence": 0.9,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.417145Z",
+      "evidence_ids": [
+        "evidence_e38c8d2fe601c3dd0bb7373b"
+      ],
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "favorite",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "preference",
+        "city"
+      ],
+      "record_id": "memory_3f59a9768fc443e296ef06314dab8574",
+      "salience": 0.88,
+      "source_type": "message",
+      "state": "active",
+      "summary": "Favorite city: Tokyo",
+      "supersedes_version_id": null,
+      "value": "Tokyo",
+      "version_id": "version_58a94ed3a7964bffb4b28f57f82265ad"
+    },
+    "version_5b0d0c90ac4741adafaec633ffeabe6d": {
+      "action": "SUPERSEDE",
+      "citation_evidence_ids": [
+        "evidence_a6cc918b39f6c709eea9b0bc"
+      ],
+      "confidence": 0.94,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.425487Z",
+      "evidence_ids": [
+        "evidence_a6cc918b39f6c709eea9b0bc"
+      ],
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "location",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "reasoning_trace": [
+        "superseded previous version",
+        "location"
+      ],
+      "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+      "salience": 0.9,
+      "source_type": "message",
+      "state": "active",
+      "summary": "Location: Berlin last month",
+      "supersedes_version_id": "version_8b620f354dd342c68a0b773fa7e7fd87",
+      "value": "Berlin last month",
+      "version_id": "version_5b0d0c90ac4741adafaec633ffeabe6d"
+    },
+    "version_8b620f354dd342c68a0b773fa7e7fd87": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_4e9859786208fa5bd76cbc6a"
+      ],
+      "confidence": 0.94,
+      "contradicted_by": [
+        "version_5b0d0c90ac4741adafaec633ffeabe6d"
+      ],
+      "created_at": "2026-03-18T03:28:35.417037Z",
+      "evidence_ids": [
+        "evidence_4e9859786208fa5bd76cbc6a"
+      ],
+      "layer": "semantic",
+      "metadata": {
+        "event_type": "message",
+        "pattern": "location",
+        "source": "rule",
+        "source_type": "message"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "location"
+      ],
+      "record_id": "memory_3528d1a05d8a4938bc18aceb974b27a6",
+      "salience": 0.9,
+      "source_type": "message",
+      "state": "superseded",
+      "summary": "Location: Istanbul",
+      "supersedes_version_id": null,
+      "value": "Istanbul",
+      "version_id": "version_8b620f354dd342c68a0b773fa7e7fd87"
+    },
+    "version_b30b89982e8f4e068b67dfe2240e08a3": {
+      "action": "ADD",
+      "citation_evidence_ids": [
+        "evidence_61b2745389da48d3257b94bc"
+      ],
+      "confidence": 0.919,
+      "contradicted_by": [],
+      "created_at": "2026-03-18T03:28:35.417279Z",
+      "evidence_ids": [
+        "evidence_61b2745389da48d3257b94bc"
+      ],
+      "layer": "episodic",
+      "metadata": {
+        "event_type": "tool_result",
+        "modality": "text",
+        "name": "calendar.lookup",
+        "source": "episodic",
+        "source_type": "tool_result"
+      },
+      "reasoning_trace": [
+        "new memory created",
+        "episodic",
+        "text",
+        "tool_result"
+      ],
+      "record_id": "memory_c9d072de42eb4b01b5cecf6448378f85",
+      "salience": 0.82,
+      "source_type": "tool_result",
+      "state": "active",
+      "summary": "Tool result: Dinner with Mert is tomorrow at 7 PM",
+      "supersedes_version_id": null,
+      "value": "Dinner with Mert is tomorrow at 7 PM",
+      "version_id": "version_b30b89982e8f4e068b67dfe2240e08a3"
+    }
+  }
+}

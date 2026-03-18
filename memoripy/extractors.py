@@ -25,6 +25,11 @@ class MemoryCandidate:
 
 
 class DefaultMemoryExtractor:
+    CLAUSE_BOUNDARY_PATTERN = re.compile(
+        r"\s+(?:and|but|because|while|although|though|then)\s+(?=(?:i\b|i'm\b|i’d\b|my\b|we\b|our\b|he\b|she\b|they\b|the\b|a\b|an\b))",
+        re.IGNORECASE,
+    )
+    TRAILING_JOINER_PATTERN = re.compile(r"\b(?:and|but|or)$", re.IGNORECASE)
     NAME_PATTERN = re.compile(r"\bmy name is (?P<value>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\b", re.IGNORECASE)
     AGE_PATTERN = re.compile(r"\bi(?: am|'m) (?P<value>\d{1,3}) years old\b", re.IGNORECASE)
     LOCATION_PATTERN = re.compile(r"\bi (?:live in|am from|moved to) (?P<value>[^,.!?]+)", re.IGNORECASE)
@@ -36,13 +41,22 @@ class DefaultMemoryExtractor:
         re.IGNORECASE,
     )
     NEGATIVE_PREF_PATTERN = re.compile(
-        r"\bi (?:do not|don't|dislike|hate) (?P<value>[^,.!?]+)",
+        r"\bi (?:(?:do not|don't) (?:really )?(?:like|love|enjoy|prefer)|dislike|hate) (?P<value>[^,.!?]+)",
         re.IGNORECASE,
     )
     RELATION_PATTERN = re.compile(
         r"\b(?P<left>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\s+(?P<relation>works at|knows|likes|visited)\s+(?P<right>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)",
         re.IGNORECASE,
     )
+
+    def _clean_captured_value(self, value: str) -> str:
+        cleaned = normalize_text(value)
+        if not cleaned:
+            return ""
+        cleaned = self.CLAUSE_BOUNDARY_PATTERN.split(cleaned, maxsplit=1)[0]
+        cleaned = cleaned.strip(" ,.!?;:")
+        cleaned = self.TRAILING_JOINER_PATTERN.sub("", cleaned).strip()
+        return normalize_text(cleaned)
 
     def extract_semantic(self, evidence: EvidenceItem) -> list[MemoryCandidate]:
         text = normalize_text(evidence.text)
@@ -67,7 +81,7 @@ class DefaultMemoryExtractor:
             (self.OCCUPATION_PATTERN, "occupation", MemoryKind.PROFILE_ATTRIBUTE.value),
         ):
             for match in pattern.finditer(text):
-                value = normalize_text(match.group("value"))
+                value = self._clean_captured_value(match.group("value"))
                 if not value:
                     continue
                 add_candidate(
@@ -77,7 +91,7 @@ class DefaultMemoryExtractor:
                         value=value,
                         summary=f"{key_name.replace('_', ' ').title()}: {value}",
                         confidence=0.94,
-                        metadata={"source": "rule", "pattern": key_name},
+                        metadata={"source": "rule", "pattern": key_name, "topic": key_name},
                         entity_names=entities + extract_entities(value),
                         tags=[key_name],
                         salience=0.9,
@@ -87,7 +101,7 @@ class DefaultMemoryExtractor:
 
         for match in self.FAVORITE_PATTERN.finditer(text):
             raw_key = normalize_text(match.group("key")).lower().replace(" ", "_")
-            value = normalize_text(match.group("value"))
+            value = self._clean_captured_value(match.group("value"))
             if not raw_key or not value:
                 continue
             add_candidate(
@@ -97,7 +111,7 @@ class DefaultMemoryExtractor:
                     value=value,
                     summary=f"Favorite {raw_key.replace('_', ' ')}: {value}",
                     confidence=0.9,
-                    metadata={"source": "rule", "pattern": "favorite"},
+                    metadata={"source": "rule", "pattern": "favorite", "topic": raw_key, "sentiment": "positive"},
                     entity_names=entities + extract_entities(value),
                     tags=["preference", raw_key],
                     salience=0.88,
@@ -106,7 +120,7 @@ class DefaultMemoryExtractor:
             )
 
         for match in self.POSITIVE_PREF_PATTERN.finditer(text):
-            value = normalize_text(match.group("value"))
+            value = self._clean_captured_value(match.group("value"))
             if not value:
                 continue
             key = f"prefers_{stable_hash(value)[:12]}"
@@ -117,7 +131,7 @@ class DefaultMemoryExtractor:
                     value=value,
                     summary=f"Positive preference: {value}",
                     confidence=0.82,
-                    metadata={"source": "rule", "sentiment": "positive"},
+                    metadata={"source": "rule", "sentiment": "positive", "topic": normalize_text(value).lower()},
                     entity_names=entities + extract_entities(value),
                     tags=["preference", "positive"],
                     salience=0.74,
@@ -126,7 +140,7 @@ class DefaultMemoryExtractor:
             )
 
         for match in self.NEGATIVE_PREF_PATTERN.finditer(text):
-            value = normalize_text(match.group("value"))
+            value = self._clean_captured_value(match.group("value"))
             if not value:
                 continue
             key = f"avoids_{stable_hash(value)[:12]}"
@@ -137,7 +151,7 @@ class DefaultMemoryExtractor:
                     value=value,
                     summary=f"Negative preference: {value}",
                     confidence=0.82,
-                    metadata={"source": "rule", "sentiment": "negative"},
+                    metadata={"source": "rule", "sentiment": "negative", "topic": normalize_text(value).lower()},
                     entity_names=entities + extract_entities(value),
                     tags=["preference", "negative"],
                     salience=0.74,

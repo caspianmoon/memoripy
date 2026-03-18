@@ -16,6 +16,20 @@ from .json_storage import JSONStorage
 from .memory_manager import MemoryManager
 from .memory_store import MemoryStore
 from .model import ChatModel, EmbeddingModel
+from .pipeline import (
+    AssetProcessor,
+    BrainConfig,
+    DefaultMemoryReconciler,
+    KeywordBoostReranker,
+    LocalAssetProcessor,
+    MemoryPipelineConfig,
+    MemoryReconciler,
+    ReconciliationDecision,
+    RerankOutcome,
+    Reranker,
+    SemanticExtractor,
+)
+from .postgres_repository import PostgresRepository
 from .repository import FileMemoryRepository, InMemoryRepository
 from .service import MemoryService, create_fastapi_app, serve_http
 from .storage import BaseStorage
@@ -27,6 +41,7 @@ from .types import (
     MemoryLayer,
     MemoryRecord,
     MemoryScope,
+    MemoryState,
     MemoryVersion,
     ProjectionStatus,
     RelationEdge,
@@ -39,9 +54,11 @@ __all__ = [
     "AzureOpenAIChatModel",
     "AzureOpenAIEmbeddingModel",
     "BaseStorage",
+    "BrainConfig",
     "ChatCompletionsModel",
     "ChatModel",
     "ContextPack",
+    "DefaultMemoryReconciler",
     "EchoChatModel",
     "EmbeddingModel",
     "EvidenceItem",
@@ -51,11 +68,16 @@ __all__ = [
     "InMemoryStorage",
     "IngestionItem",
     "JSONStorage",
+    "KeywordBoostReranker",
+    "LocalAssetProcessor",
     "MemoryLayer",
     "MemoryClient",
     "MemoryManager",
+    "MemoryPipelineConfig",
+    "MemoryReconciler",
     "MemoryRecord",
     "MemoryScope",
+    "MemoryState",
     "MemoryService",
     "MemoryStore",
     "MemoryVersion",
@@ -65,9 +87,14 @@ __all__ = [
     "OpenAIEmbeddingModel",
     "OpenRouterChatModel",
     "ProjectionStatus",
+    "PostgresRepository",
+    "ReconciliationDecision",
     "RelationEdge",
+    "RerankOutcome",
+    "Reranker",
     "SearchFilters",
     "SearchResult",
+    "SemanticExtractor",
     "SimpleKeywordEmbeddingModel",
     "create_fastapi_app",
     "serve_http",

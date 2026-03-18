@@ -15,6 +15,7 @@ class MemoryAction(str, Enum):
 
 class MemoryState(str, Enum):
     ACTIVE = "active"
+    DORMANT = "dormant"
     PENDING = "pending"
     SUPERSEDED = "superseded"
     DELETED = "deleted"
@@ -379,6 +380,7 @@ class ContextPack:
     query: str
     scope: MemoryScope
     intent: str
+    working_memory: list[dict[str, Any]] = field(default_factory=list)
     profile: list[dict[str, Any]] = field(default_factory=list)
     preferences: list[dict[str, Any]] = field(default_factory=list)
     relationships: list[dict[str, Any]] = field(default_factory=list)
@@ -387,12 +389,14 @@ class ContextPack:
     citations: list[dict[str, Any]] = field(default_factory=list)
     projection_status: ProjectionStatus = field(default_factory=ProjectionStatus)
     debug: dict[str, Any] = field(default_factory=dict)
+    trace: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "query": self.query,
             "scope": self.scope.to_dict(),
             "intent": self.intent,
+            "working_memory": self.working_memory,
             "profile": self.profile,
             "preferences": self.preferences,
             "relationships": self.relationships,
@@ -401,4 +405,5 @@ class ContextPack:
             "citations": self.citations,
             "projection_status": self.projection_status.to_dict(),
             "debug": self.debug,
+            "trace": self.trace,
         }

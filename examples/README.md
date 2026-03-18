@@ -2,9 +2,13 @@
 
 This directory contains both the new v3 assistant-first examples and older compatibility examples.
 
+Detailed product and API documentation lives in [../docs/index.md](../docs/index.md).
+
 ## Start Here
 
 - [v3_basic.py](./v3_basic.py): Capture messages plus tool events, build a context pack, and ground chat completions with `memory_strategy="v3"`.
+- [benchmark_eval.py](./benchmark_eval.py): Run the fixed benchmark suite against the in-repo `attention_fast` Memoripy adapter.
+- [postgres_example.py](./postgres_example.py): Wire a `MemoryClient` to `PostgresRepository`.
 
 ## Compatibility Examples
 

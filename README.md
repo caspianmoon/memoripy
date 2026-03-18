@@ -1,30 +1,31 @@
 # Memoripy
 
-Memoripy is an assistant-first memory framework for LLM applications.
+Memoripy is a Python memory framework for LLM applications. It gives an assistant or agent a durable memory layer that can ingest conversations and tool activity, extract useful facts, preserve evidence, build grounded context for later turns, and expose the whole system through a local SDK or HTTP service.
 
-The v3 layer adds Jarvis-style contextual recall on top of the existing versioned storage core:
+At a high level, Memoripy combines three things:
 
-- Immutable evidence for messages, tool calls, tool results, and assistant actions
-- Durable semantic memory for facts, preferences, profile attributes, and relations
-- Episodic memory for recent, high-salience interactions and tool observations
-- Hierarchical scope recall across run, assistant, user, and broader assistant context
-- Context packs for live assistant turns with citations and ranking breakdowns
-- Backward-compatible v2 APIs for low-level add/search/history workflows
+- assistant-first memory capture for messages, tool calls, tool results, and ingestion items
+- durable memory storage with evidence, versions, citations, and history
+- retrieval and grounding workflows for search, context-building, and chat completions
 
-## What Ships In This Repo
+It supports both a lower-level memory API and a higher-level v3 assistant workflow. The newer surface also includes an optional `attention_fast` mode that adds working-memory selection, activation tracking, dormancy, and explicit consolidation while keeping the hot path local and deterministic.
 
-- `MemoryClient` and `AsyncMemoryClient`
-- `capture(...)` for assistant-first ingestion
-- `context.build(...)` for sectioned live recall
-- `add/search/get/history/export/import` for lower-level control
-- `chat.completions.create(..., memory_strategy="v3")`
-- `MemoryService`, `serve_http()`, and `create_fastapi_app()`
-- In-memory and file-backed repositories
-- Export/import plus schema migration from older snapshots
+## What Memoripy Can Do
+
+- Capture conversations and tool events with `capture(...)`
+- Store evidence separately from extracted memories
+- Maintain semantic memory for facts, preferences, profile attributes, and relations
+- Maintain episodic memory for recent or salient interactions
+- Track version history, contradictions, and supporting evidence
+- Build sectioned context packs with citations using `context.build(...)`
+- Ground `chat.completions.create(...)` responses with memory
+- Expose ranked search, trace output, and low-level memory control
+- Run in-memory, file-backed, or SQL-backed storage
+- Serve the same behavior over HTTP with `MemoryService`, `serve_http()`, and `create_fastapi_app()`
 
 ## Install
 
-Base runtime:
+Base package:
 
 ```bash
 pip install memoripy
@@ -34,11 +35,19 @@ Optional extras:
 
 ```bash
 pip install "memoripy[service]"
-pip install "memoripy[dynamo]"
 pip install "memoripy[postgres]"
+pip install "memoripy[dynamo]"
+pip install "memoripy[dev]"
 ```
 
-## Quickstart
+Installed extras map directly to the package metadata in [setup.py](./setup.py):
+
+- `service`: FastAPI and Uvicorn
+- `postgres`: SQLAlchemy, Alembic, Psycopg, and pgvector
+- `dynamo`: PynamoDB and python-dotenv
+- `dev`: pytest and ruff
+
+## 2-Minute Quickstart
 
 ```python
 from memoripy import MemoryClient
@@ -63,26 +72,42 @@ client.capture(
     idempotency_key="intro-1",
 )
 
-memory_pack = client.context.build(
+pack = client.context.build(
     query="What do you remember about me and what is on my calendar?",
     user_id="khazar",
     agent_id="jarvis",
     run_id="session-1",
 )
 
-print(memory_pack.profile)
-print(memory_pack.tool_observations)
+print(pack.profile)
+print(pack.tool_observations)
 ```
 
-## API Surface
+What happened here:
 
-### Assistant-First SDK
+1. `capture(...)` stored raw evidence for the conversation and tool result.
+2. Memoripy extracted durable memories from that evidence.
+3. `context.build(...)` assembled a structured `ContextPack` you can use directly or pass into chat grounding.
+
+## Choose Your Mode
+
+### `v2`: Low-Level Memory Control
+
+Use the lower-level API when you want direct memory CRUD and search primitives:
 
 ```python
-from memoripy import MemoryClient
+client.add(text="I live in Istanbul", user_id="u1")
+results = client.search(query="where do i live", user_id="u1")
+history = client.history(memory_id=results["results"][0]["memory"]["record_id"])
+```
 
-client = MemoryClient()
+Choose this when you want explicit control over stored memory rather than assistant-turn workflows.
 
+### `v3`: Assistant-First Memory
+
+Use `capture(...)`, `context.build(...)`, and `chat.completions.create(..., memory_strategy="v3")` when the unit of work is an assistant interaction:
+
+```python
 client.capture(
     messages=[{"role": "user", "content": "My favorite city is Tokyo"}],
     user_id="u1",
@@ -93,73 +118,89 @@ pack = client.context.build(query="What city do I like?", user_id="u1", agent_id
 print(pack.preferences[0]["summary"])
 ```
 
-### V3 Chat Grounding
+### `attention_fast`: Brain-Like Fast Mode
+
+Use `BrainConfig(mode="attention_fast")` when you want activation-aware ranking, working memory, dormancy, and explicit consolidation:
 
 ```python
-response = client.chat.completions.create(
-    messages=[{"role": "user", "content": "What do you remember about me?"}],
-    user_id="u1",
-    agent_id="jarvis",
-    memory_strategy="v3",
-    include_memory_pack=True,
+from memoripy import BrainConfig, MemoryClient, MemoryPipelineConfig
+
+client = MemoryClient(
+    pipeline=MemoryPipelineConfig(
+        brain=BrainConfig(mode="attention_fast"),
+        default_include_trace=True,
+    )
 )
 
-print(response["choices"][0]["message"]["content"])
-print(response["memory_pack"]["profile"])
+pack = client.context.build(query="What do you remember about me?", user_id="u1")
+print(pack.working_memory)
 ```
 
-### Service Layer
+This mode stays local-first. It does not require LLM calls in the hot path.
 
-```python
-from memoripy import MemoryClient, serve_http
+## Documentation Map
 
-server = serve_http(port=8000, client=MemoryClient.from_path("./.memoripy"))
-server.serve_forever()
+Start here depending on what you need:
+
+- [Detailed docs home](./docs/index.md)
+- [Concepts and mental model](./docs/concepts.md)
+- [Getting started](./docs/getting-started.md)
+- [Assistant-first memory guide](./docs/assistant-memory.md)
+- [Low-level and compatibility guide](./docs/low-level-and-compatibility.md)
+- [Brain mode and maintenance](./docs/brain-mode-and-maintenance.md)
+- [Service and storage](./docs/service-and-storage.md)
+- [API reference](./docs/api-reference.md)
+- [Architecture appendix](./docs/architecture.md)
+- [Troubleshooting and FAQ](./docs/faq.md)
+
+Runnable examples:
+
+- [Examples overview](./examples/README.md)
+- [v3 basic example](./examples/v3_basic.py)
+- [v2 basic example](./examples/v2_basic.py)
+- [Postgres example](./examples/postgres_example.py)
+- [Benchmark example](./examples/benchmark_eval.py)
+
+## Core Public Surface
+
+Primary SDK:
+
+- `MemoryClient`
+- `AsyncMemoryClient`
+- `capture(...)`
+- `context.build(...)`
+- `chat.completions.create(...)`
+- `maintenance.consolidate(...)`
+- `add/search/get/get_all/update/delete/delete_all/history/export/import`
+
+Configuration and types:
+
+- `MemoryPipelineConfig`
+- `BrainConfig`
+- `SearchFilters`
+- `ContextPack`
+- `MemoryState`
+
+Repositories and service:
+
+- `InMemoryRepository`
+- `FileMemoryRepository`
+- `PostgresRepository`
+- `MemoryService`
+- `serve_http()`
+- `create_fastapi_app()`
+
+## Benchmarks
+
+Memoripy ships a reproducible benchmark harness:
+
+```bash
+python3 -m benchmarks.runner --target memoripy
+python3 -m benchmarks.runner --target memoripy --json
+python3 -m benchmarks.runner --latency --json
 ```
 
-Available endpoints:
-
-- `POST /v1/memories`
-- `GET /v1/memories`
-- `GET /v1/memories/{id}`
-- `PATCH /v1/memories/{id}`
-- `DELETE /v1/memories/{id}`
-- `GET /v1/memories/{id}/history`
-- `POST /v1/search`
-- `POST /v1/export`
-- `POST /v1/import`
-- `POST /v1/chat/completions`
-- `POST /v3/capture`
-- `POST /v3/context`
-
-## Reliability Model
-
-- Mutating operations support idempotency keys.
-- Writes go through immutable evidence plus versioned memory records.
-- Semantic memory and episodic memory share the same durable version history.
-- Search and context assembly expose provenance and ranking breakdowns.
-- Older exported snapshots load into schema version 3 automatically.
-
-## Compatibility
-
-The v2 APIs remain available for low-level workflows and existing integrations:
-
-```python
-client.add(text="I live in Istanbul", user_id="u1")
-client.search(query="where do i live", user_id="u1")
-client.history(memory_id="memory_...")
-client.export()
-```
-
-The legacy `MemoryManager` shim also still works:
-
-```python
-from memoripy import JSONStorage, MemoryManager
-
-manager = MemoryManager(storage=JSONStorage("memory.json"))
-manager.add_interaction("My name is Khazar", "Nice to meet you")
-print(manager.retrieve_relevant_interactions("name"))
-```
+See [benchmarks/README.md](./benchmarks/README.md) for details.
 
 ## Tests
 
@@ -168,3 +209,14 @@ Run the built-in suite from the repo root:
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## Current Limitations
+
+- The built-in Mem0 benchmark target is a placeholder unless you run the shared scenarios in an external Mem0 environment.
+- Background consolidation is explicit and user-triggered through `maintenance.consolidate(...)`; there is no built-in scheduler.
+- `PostgresRepository` requires the optional `postgres` extras.
+- The Dynamo integration still exists, but the actively maintained durable backend is `PostgresRepository`.
+
+## License
+
+Memoripy is released under the [Apache License 2.0](./LICENSE).
