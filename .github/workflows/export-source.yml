@@ -1,0 +1,28 @@
+name: Export source snapshot
+
+on:
+  push:
+    branches:
+      - v4
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build source archive
+        shell: bash
+        run: tar --exclude=.git -czf memoripy-v4-source.tar.gz .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: memoripy-v4-source
+          path: memoripy-v4-source.tar.gz
+          retention-days: 1
+          if-no-files-found: error
