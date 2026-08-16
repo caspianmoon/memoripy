@@ -1,0 +1,71 @@
+name: Build Memoripy v4
+
+on:
+  push:
+    branches: [v4]
+    paths:
+      - ".v4-bootstrap/**"
+      - ".github/workflows/v4-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v4
+          fetch-depth: 0
+
+      - name: Expand validated v4 source
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64
+          import hashlib
+          import io
+          import shutil
+          import tarfile
+
+          chunks = sorted(Path(".v4-bootstrap").glob("payload.*"))
+          if len(chunks) != 6:
+              raise SystemExit(f"expected 6 payload chunks, found {len(chunks)}")
+
+          encoded = "".join(path.read_text(encoding="utf-8") for path in chunks)
+          archive = base64.b85decode(encoded.encode("ascii"))
+          digest = hashlib.sha256(archive).hexdigest()
+          expected = "13b2f07d0a31415bfe7fe1ece2618420d3da3d46b3d8ad81d9be4c670f3334d4"
+          if digest != expected:
+              raise SystemExit(f"archive digest mismatch: {digest}")
+
+          root = Path(".")
+          for child in list(root.iterdir()):
+              if child.name in {".git", ".v4-bootstrap"}:
+                  continue
+              if child.is_dir() and not child.is_symlink():
+                  shutil.rmtree(child)
+              else:
+                  child.unlink()
+
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:xz") as handle:
+              handle.extractall(root, filter="data")
+          shutil.rmtree(".v4-bootstrap")
+          PY
+
+      - name: Validate source
+        run: |
+          python -m compileall -q memoripy
+          python -m unittest discover -s tests -v
+          python -m memoripy eval
+
+      - name: Commit v4
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "build: release Memoripy v4"
+          git push origin HEAD:v4
