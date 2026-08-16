@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import unittest
+from pathlib import Path
 
 from memoripy import AsyncMemoryClient, JSONStorage, MemoryClient, MemoryManager, MemoryService
 
@@ -89,11 +90,13 @@ class MemoripyV2Tests(unittest.TestCase):
         self.assertEqual(asyncio.run(runner()), "Async Alice")
 
     def test_memory_manager_compatibility(self):
-        manager = MemoryManager(storage=JSONStorage(file_path=tempfile.NamedTemporaryFile(suffix=".json").name))
-        manager.add_interaction("My name is Legacy Lisa", "Nice to meet you")
-        retrievals = manager.retrieve_relevant_interactions("name", similarity_threshold=0)
-        self.assertTrue(retrievals)
-        self.assertIn("Legacy Lisa", retrievals[0]["output"] or retrievals[0]["prompt"])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = str(Path(tmpdir) / "legacy.json")
+            manager = MemoryManager(storage=JSONStorage(file_path=path))
+            manager.add_interaction("My name is Legacy Lisa", "Nice to meet you")
+            retrievals = manager.retrieve_relevant_interactions("name", similarity_threshold=0)
+            self.assertTrue(retrievals)
+            self.assertIn("Legacy Lisa", retrievals[0]["output"] or retrievals[0]["prompt"])
 
     def test_service_routes(self):
         service = MemoryService()
