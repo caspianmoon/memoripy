@@ -31,8 +31,8 @@ jobs:
           import tarfile
 
           chunks = sorted(Path(".v4-bootstrap").glob("payload.*"))
-          if len(chunks) != 6:
-              raise SystemExit(f"expected 6 payload chunks, found {len(chunks)}")
+          if len(chunks) != 7:
+              raise SystemExit(f"expected 7 payload chunks, found {len(chunks)}")
 
           encoded = "".join(path.read_text(encoding="utf-8") for path in chunks)
           archive = base64.b85decode(encoded.encode("ascii"))
