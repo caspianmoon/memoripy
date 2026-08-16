@@ -4,8 +4,17 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from .types import EventType, EvidenceItem, MemoryKind, MemoryLayer, MemoryState
-from .utils import extract_entities, normalize_text, stable_hash, summarize_text, tokenize
+from .types import (
+    Durability,
+    EventType,
+    EvidenceItem,
+    MemoryKind,
+    MemoryLayer,
+    MemoryState,
+    SourceType,
+    TrustLevel,
+)
+from .utils import extract_entities, normalize_key, normalize_text, stable_hash, summarize_text, tokenize
 
 
 @dataclass
@@ -21,204 +30,330 @@ class MemoryCandidate:
     tags: list[str] = field(default_factory=list)
     layer: str = MemoryLayer.SEMANTIC.value
     salience: float = 0.0
-    source_type: str = EventType.INGESTION.value
+    source_type: str = SourceType.UNKNOWN.value
+    trust_level: str = TrustLevel.DERIVED.value
+    durability: str = Durability.DURABLE.value
+    subject: str | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    evidence_spans: list[dict[str, Any]] = field(default_factory=list)
+
+    def canonical_value(self) -> str:
+        return normalize_key(self.value)
 
 
 class DefaultMemoryExtractor:
+    """
+    Transparent, deterministic extraction for common statements.
+
+    It is intentionally conservative. Applications that need broad semantic
+    extraction should provide a custom extractor through MemoryPipelineConfig.
+    """
+
     CLAUSE_BOUNDARY_PATTERN = re.compile(
-        r"\s+(?:and|but|because|while|although|though|then)\s+(?=(?:i\b|i'm\b|i’d\b|my\b|we\b|our\b|he\b|she\b|they\b|the\b|a\b|an\b))",
-        re.IGNORECASE,
+        r"\s+(?:and|but|because|while|although|though|then|ve|ama|çünkü)\s+"
+        r"(?=(?:i\b|i'm\b|i’d\b|my\b|we\b|our\b|he\b|she\b|they\b|the\b|a\b|an\b|ben\b|biz\b))",
+        re.IGNORECASE | re.UNICODE,
     )
-    TRAILING_JOINER_PATTERN = re.compile(r"\b(?:and|but|or)$", re.IGNORECASE)
-    NAME_PATTERN = re.compile(r"\bmy name is (?P<value>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\b", re.IGNORECASE)
-    AGE_PATTERN = re.compile(r"\bi(?: am|'m) (?P<value>\d{1,3}) years old\b", re.IGNORECASE)
-    LOCATION_PATTERN = re.compile(r"\bi (?:live in|am from|moved to) (?P<value>[^,.!?]+)", re.IGNORECASE)
-    EMPLOYER_PATTERN = re.compile(r"\bi work (?:at|for) (?P<value>[^,.!?]+)", re.IGNORECASE)
-    OCCUPATION_PATTERN = re.compile(r"\bi work as (?P<value>[^,.!?]+)", re.IGNORECASE)
-    FAVORITE_PATTERN = re.compile(r"\bmy favorite (?P<key>[a-zA-Z ]+?) is (?P<value>[^,.!?]+)", re.IGNORECASE)
+    TRAILING_JOINER_PATTERN = re.compile(r"\b(?:and|but|or|ve|ama|ya da)$", re.IGNORECASE | re.UNICODE)
+    NAME_PATTERNS = (
+        re.compile(r"\bmy name is (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bcall me (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bbenim adım (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+    )
+    AGE_PATTERNS = (
+        re.compile(r"\bi(?: am|'m) (?P<value>\d{1,3}) years old\b", re.IGNORECASE),
+        re.compile(r"\b(?P<value>\d{1,3}) yaşındayım\b", re.IGNORECASE | re.UNICODE),
+    )
+    LOCATION_PATTERNS = (
+        re.compile(r"\bi (?:live in|am from|moved to|relocated to) (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\b(?:ben\s+)?(?P<value>[^,.!?;]+?)(?:'da|'de|da|de) yaşıyorum\b", re.IGNORECASE | re.UNICODE),
+    )
+    EMPLOYER_PATTERNS = (
+        re.compile(r"\bi work (?:at|for) (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\b(?P<value>[^,.!?;]+?)(?:'da|'de|da|de) çalışıyorum\b", re.IGNORECASE | re.UNICODE),
+    )
+    OCCUPATION_PATTERNS = (
+        re.compile(r"\bi work as (?:an? )?(?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bmesleğim (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+    )
+    FAVORITE_PATTERNS = (
+        re.compile(r"\bmy favorite (?P<key>[^,.!?;]+?) is (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\ben sevdiğim (?P<key>[^,.!?;]+?) (?P<value>[^,.!?;]+)", re.IGNORECASE | re.UNICODE),
+    )
     POSITIVE_PREF_PATTERN = re.compile(
-        r"\bi (?:really )?(?:like|love|enjoy|prefer) (?P<value>[^,.!?]+)",
-        re.IGNORECASE,
+        r"\bi (?:really )?(?:like|love|enjoy|prefer) (?P<value>[^,.!?;]+)",
+        re.IGNORECASE | re.UNICODE,
     )
     NEGATIVE_PREF_PATTERN = re.compile(
-        r"\bi (?:(?:do not|don't) (?:really )?(?:like|love|enjoy|prefer)|dislike|hate) (?P<value>[^,.!?]+)",
-        re.IGNORECASE,
+        r"\bi (?:(?:do not|don't|no longer) (?:really )?(?:like|love|enjoy|prefer)|"
+        r"(?:stopped|have stopped) (?:liking|loving|enjoying|preferring)|dislike|hate) "
+        r"(?P<value>[^,.!?;]+)",
+        re.IGNORECASE | re.UNICODE,
+    )
+    CONSTRAINT_PATTERNS = (
+        re.compile(r"\b(?:please )?(?:never|do not|don't) (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\b(?:please )?(?:always|make sure to) (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bavoid (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+    )
+    COMMITMENT_PATTERNS = (
+        re.compile(r"\bi will (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bwe will (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\bremind me to (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+    )
+    DECISION_PATTERNS = (
+        re.compile(r"\b(?:we|i) decided (?:to|that) (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
+        re.compile(r"\b(?:we|i) chose (?P<value>[^.!?;]+)", re.IGNORECASE | re.UNICODE),
     )
     RELATION_PATTERN = re.compile(
-        r"\b(?P<left>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)\s+(?P<relation>works at|knows|likes|visited)\s+(?P<right>[A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+)*)",
-        re.IGNORECASE,
+        r"\b(?P<left>[^,.!?;]{2,60}?)\s+"
+        r"(?P<relation>works at|knows|likes|visited|is friends with|is married to|is dating)\s+"
+        r"(?P<right>[^,.!?;]{2,60})",
+        re.IGNORECASE | re.UNICODE,
     )
-
-    def _clean_captured_value(self, value: str) -> str:
-        cleaned = normalize_text(value)
-        if not cleaned:
-            return ""
-        cleaned = self.CLAUSE_BOUNDARY_PATTERN.split(cleaned, maxsplit=1)[0]
-        cleaned = cleaned.strip(" ,.!?;:")
-        cleaned = self.TRAILING_JOINER_PATTERN.sub("", cleaned).strip()
-        return normalize_text(cleaned)
 
     def extract_semantic(self, evidence: EvidenceItem) -> list[MemoryCandidate]:
         text = normalize_text(evidence.text)
         if not text:
             return []
 
+        explicit = self._explicit_candidate(evidence)
+        if explicit is not None:
+            return [explicit]
+
         candidates: list[MemoryCandidate] = []
+        subject = str(evidence.metadata.get("subject") or evidence.scope.user_id or "user")
         entities = extract_entities(text)
 
-        def add_candidate(candidate: MemoryCandidate) -> None:
-            if candidate.entity_names:
-                candidate.entity_names = list(dict.fromkeys(candidate.entity_names))
-            else:
-                candidate.entity_names = entities
-            candidates.append(candidate)
+        def add(
+            *,
+            kind: str,
+            key: str,
+            value: str,
+            summary: str,
+            confidence: float,
+            match: re.Match[str] | None = None,
+            metadata: dict[str, Any] | None = None,
+            tags: list[str] | None = None,
+            durability: str = Durability.DURABLE.value,
+            layer: str = MemoryLayer.SEMANTIC.value,
+            salience: float = 0.7,
+        ) -> None:
+            cleaned = self._clean_captured_value(value)
+            if not cleaned:
+                return
+            spans: list[dict[str, Any]] = []
+            if match is not None:
+                spans.append(
+                    {
+                        "start": match.start("value"),
+                        "end": match.end("value"),
+                        "text": match.group("value"),
+                    }
+                )
+            candidates.append(
+                MemoryCandidate(
+                    kind=kind,
+                    key=normalize_key(key).replace(" ", "_"),
+                    value=cleaned,
+                    summary=summary.format(value=cleaned),
+                    confidence=confidence,
+                    metadata={
+                        "extractor": "deterministic",
+                        "topic": normalize_key(key),
+                        **dict(metadata or {}),
+                    },
+                    entity_names=list(dict.fromkeys(entities + extract_entities(cleaned))),
+                    tags=list(dict.fromkeys(tags or [kind, normalize_key(key)])),
+                    layer=layer,
+                    salience=salience,
+                    source_type=evidence.source_type,
+                    trust_level=evidence.trust_level,
+                    durability=durability,
+                    subject=subject,
+                    observed_at=evidence.occurred_at or evidence.created_at,
+                    valid_from=evidence.metadata.get("valid_from") or evidence.occurred_at or evidence.created_at,
+                    valid_to=evidence.metadata.get("valid_to"),
+                    evidence_spans=spans,
+                )
+            )
 
-        for pattern, key_name, kind in (
-            (self.NAME_PATTERN, "name", MemoryKind.PROFILE_ATTRIBUTE.value),
-            (self.AGE_PATTERN, "age", MemoryKind.PROFILE_ATTRIBUTE.value),
-            (self.LOCATION_PATTERN, "location", MemoryKind.PROFILE_ATTRIBUTE.value),
-            (self.EMPLOYER_PATTERN, "employer", MemoryKind.PROFILE_ATTRIBUTE.value),
-            (self.OCCUPATION_PATTERN, "occupation", MemoryKind.PROFILE_ATTRIBUTE.value),
+        for key_name, patterns in (
+            ("name", self.NAME_PATTERNS),
+            ("age", self.AGE_PATTERNS),
+            ("location", self.LOCATION_PATTERNS),
+            ("employer", self.EMPLOYER_PATTERNS),
+            ("occupation", self.OCCUPATION_PATTERNS),
+        ):
+            for pattern in patterns:
+                for match in pattern.finditer(text):
+                    add(
+                        kind=MemoryKind.PROFILE_ATTRIBUTE.value,
+                        key=key_name,
+                        value=match.group("value"),
+                        summary=f"{key_name.replace('_', ' ').title()}: {{value}}",
+                        confidence=0.94,
+                        match=match,
+                        salience=0.9,
+                    )
+
+        for pattern in self.FAVORITE_PATTERNS:
+            for match in pattern.finditer(text):
+                raw_key = self._clean_captured_value(match.group("key"))
+                add(
+                    kind=MemoryKind.PREFERENCE.value,
+                    key=f"favorite_{raw_key}",
+                    value=match.group("value"),
+                    summary=f"Favorite {raw_key}: {{value}}",
+                    confidence=0.9,
+                    match=match,
+                    metadata={"sentiment": "positive"},
+                    tags=["preference", raw_key, "positive"],
+                    salience=0.86,
+                )
+
+        for sentiment, pattern in (
+            ("positive", self.POSITIVE_PREF_PATTERN),
+            ("negative", self.NEGATIVE_PREF_PATTERN),
         ):
             for match in pattern.finditer(text):
                 value = self._clean_captured_value(match.group("value"))
-                if not value:
-                    continue
-                add_candidate(
-                    MemoryCandidate(
-                        kind=kind,
-                        key=key_name,
-                        value=value,
-                        summary=f"{key_name.replace('_', ' ').title()}: {value}",
-                        confidence=0.94,
-                        metadata={"source": "rule", "pattern": key_name, "topic": key_name},
-                        entity_names=entities + extract_entities(value),
-                        tags=[key_name],
-                        salience=0.9,
-                        source_type=evidence.source_type,
-                    )
-                )
-
-        for match in self.FAVORITE_PATTERN.finditer(text):
-            raw_key = normalize_text(match.group("key")).lower().replace(" ", "_")
-            value = self._clean_captured_value(match.group("value"))
-            if not raw_key or not value:
-                continue
-            add_candidate(
-                MemoryCandidate(
+                add(
                     kind=MemoryKind.PREFERENCE.value,
-                    key=f"favorite_{raw_key}",
+                    key=f"preference_{stable_hash(normalize_key(value))[:16]}",
                     value=value,
-                    summary=f"Favorite {raw_key.replace('_', ' ')}: {value}",
-                    confidence=0.9,
-                    metadata={"source": "rule", "pattern": "favorite", "topic": raw_key, "sentiment": "positive"},
-                    entity_names=entities + extract_entities(value),
-                    tags=["preference", raw_key],
-                    salience=0.88,
-                    source_type=evidence.source_type,
-                )
-            )
-
-        for match in self.POSITIVE_PREF_PATTERN.finditer(text):
-            value = self._clean_captured_value(match.group("value"))
-            if not value:
-                continue
-            key = f"prefers_{stable_hash(value)[:12]}"
-            add_candidate(
-                MemoryCandidate(
-                    kind=MemoryKind.PREFERENCE.value,
-                    key=key,
-                    value=value,
-                    summary=f"Positive preference: {value}",
+                    summary=f"{sentiment.title()} preference: {{value}}",
                     confidence=0.82,
-                    metadata={"source": "rule", "sentiment": "positive", "topic": normalize_text(value).lower()},
-                    entity_names=entities + extract_entities(value),
-                    tags=["preference", "positive"],
-                    salience=0.74,
-                    source_type=evidence.source_type,
+                    match=match,
+                    metadata={"sentiment": sentiment, "topic": normalize_key(value)},
+                    tags=["preference", sentiment],
+                    salience=0.76,
                 )
-            )
 
-        for match in self.NEGATIVE_PREF_PATTERN.finditer(text):
-            value = self._clean_captured_value(match.group("value"))
-            if not value:
-                continue
-            key = f"avoids_{stable_hash(value)[:12]}"
-            add_candidate(
-                MemoryCandidate(
-                    kind=MemoryKind.PREFERENCE.value,
-                    key=key,
+        for pattern in self.CONSTRAINT_PATTERNS:
+            for match in pattern.finditer(text):
+                value = self._clean_captured_value(match.group("value"))
+                add(
+                    kind=MemoryKind.CONSTRAINT.value,
+                    key=f"constraint_{stable_hash(normalize_key(value))[:16]}",
                     value=value,
-                    summary=f"Negative preference: {value}",
-                    confidence=0.82,
-                    metadata={"source": "rule", "sentiment": "negative", "topic": normalize_text(value).lower()},
-                    entity_names=entities + extract_entities(value),
-                    tags=["preference", "negative"],
-                    salience=0.74,
-                    source_type=evidence.source_type,
+                    summary="Constraint: {value}",
+                    confidence=0.86,
+                    match=match,
+                    durability=Durability.PINNED.value,
+                    salience=0.92,
                 )
-            )
+
+        for pattern in self.COMMITMENT_PATTERNS:
+            for match in pattern.finditer(text):
+                value = self._clean_captured_value(match.group("value"))
+                add(
+                    kind=MemoryKind.COMMITMENT.value,
+                    key=f"commitment_{stable_hash(normalize_key(value))[:16]}",
+                    value=value,
+                    summary="Commitment: {value}",
+                    confidence=0.8,
+                    match=match,
+                    metadata={"commitment_state": "open"},
+                    durability=Durability.SESSION.value,
+                    salience=0.82,
+                )
+
+        for pattern in self.DECISION_PATTERNS:
+            for match in pattern.finditer(text):
+                value = self._clean_captured_value(match.group("value"))
+                add(
+                    kind=MemoryKind.DECISION.value,
+                    key=f"decision_{stable_hash(normalize_key(value))[:16]}",
+                    value=value,
+                    summary="Decision: {value}",
+                    confidence=0.84,
+                    match=match,
+                    salience=0.84,
+                )
 
         for match in self.RELATION_PATTERN.finditer(text):
-            left = normalize_text(match.group("left"))
-            right = normalize_text(match.group("right"))
-            relation = normalize_text(match.group("relation")).lower().replace(" ", "_")
+            left = self._clean_captured_value(match.group("left"))
+            right = self._clean_captured_value(match.group("right"))
+            relation = normalize_key(match.group("relation")).replace(" ", "_")
             if not left or not right:
                 continue
-            add_candidate(
+            candidates.append(
                 MemoryCandidate(
                     kind=MemoryKind.RELATION.value,
-                    key=f"{left.lower().replace(' ', '_')}::{relation}::{right.lower().replace(' ', '_')}",
+                    key=f"{normalize_key(left)}::{relation}::{normalize_key(right)}",
                     value=f"{left} {relation.replace('_', ' ')} {right}",
                     summary=f"Relation: {left} {relation.replace('_', ' ')} {right}",
-                    confidence=0.86,
-                    metadata={"source": "rule", "left": left, "right": right, "relation": relation},
+                    confidence=0.84,
+                    metadata={
+                        "extractor": "deterministic",
+                        "left": left,
+                        "right": right,
+                        "relation": relation,
+                    },
                     entity_names=[left, right],
                     tags=["relation", relation],
-                    salience=0.8,
+                    layer=MemoryLayer.SEMANTIC.value,
+                    salience=0.78,
                     source_type=evidence.source_type,
+                    trust_level=evidence.trust_level,
+                    durability=Durability.DURABLE.value,
+                    subject=subject,
+                    observed_at=evidence.occurred_at or evidence.created_at,
+                    valid_from=evidence.metadata.get("valid_from") or evidence.occurred_at or evidence.created_at,
+                    valid_to=evidence.metadata.get("valid_to"),
+                    evidence_spans=[
+                        {"start": match.start(), "end": match.end(), "text": match.group(0)}
+                    ],
                 )
             )
 
-        return candidates
+        return self._dedupe_candidates(candidates)
 
     def build_episode_candidate(self, evidence: EvidenceItem) -> MemoryCandidate | None:
         text = normalize_text(evidence.text)
         if not text:
             return None
-
         token_count = len(tokenize(text))
-        base_salience = min(0.08 + (token_count / 25.0), 0.85)
-        if evidence.event_type == EventType.TOOL_RESULT.value:
-            base_salience = max(base_salience, 0.82)
-        elif evidence.event_type == EventType.TOOL_CALL.value:
+        base_salience = min(0.1 + (token_count / 40.0), 0.82)
+        if evidence.source_type == SourceType.TOOL_RESULT.value:
+            base_salience = max(base_salience, 0.78)
+        elif evidence.source_type == SourceType.TOOL_CALL.value:
+            base_salience = max(base_salience, 0.58)
+        elif evidence.source_type == SourceType.ASSISTANT_ACTION.value:
             base_salience = max(base_salience, 0.65)
-        elif evidence.event_type == EventType.ASSISTANT_ACTION.value:
-            base_salience = max(base_salience, 0.7)
-        elif evidence.role == "assistant":
-            base_salience = min(base_salience, 0.55)
-
-        if base_salience < 0.35:
+        elif evidence.source_type == SourceType.USER_MESSAGE.value:
+            base_salience = max(base_salience, 0.4)
+        elif evidence.source_type in (
+            SourceType.RETRIEVED_MEMORY.value,
+            SourceType.GENERATED_SUMMARY.value,
+        ):
             return None
-
-        generic_key = stable_hash(text[:200], evidence.modality, evidence.event_type, evidence.name)[:16]
-        summary_prefix = {
-            EventType.MESSAGE.value: "Episode",
-            EventType.TOOL_CALL.value: "Tool call",
-            EventType.TOOL_RESULT.value: "Tool result",
-            EventType.ASSISTANT_ACTION.value: "Assistant action",
-        }.get(evidence.event_type, "Episode")
-        summary = f"{summary_prefix}: {summarize_text(text, max_words=18)}"
-        state = MemoryState.ACTIVE.value if base_salience >= 0.45 or evidence.event_type != EventType.MESSAGE.value else MemoryState.PENDING.value
+        if base_salience < 0.38:
+            return None
+        generic_key = stable_hash(
+            text[:300],
+            evidence.modality,
+            evidence.event_type,
+            evidence.name,
+            evidence.scope.to_dict(),
+        )[:20]
+        prefix = {
+            SourceType.TOOL_CALL.value: "Tool call",
+            SourceType.TOOL_RESULT.value: "Tool result",
+            SourceType.ASSISTANT_ACTION.value: "Assistant action",
+            SourceType.EXTERNAL_DOCUMENT.value: "External evidence",
+        }.get(evidence.source_type, "Episode")
         return MemoryCandidate(
             kind=MemoryKind.EPISODIC_SUMMARY.value,
             key=f"episode_{generic_key}",
             value=text,
-            summary=summary,
-            confidence=min(0.55 + (base_salience * 0.45), 0.95),
-            state=state,
+            summary=f"{prefix}: {summarize_text(text, max_words=22)}",
+            confidence=min(0.55 + (base_salience * 0.4), 0.92),
+            state=MemoryState.ACTIVE.value,
             metadata={
-                "source": "episodic",
+                "extractor": "deterministic",
                 "modality": evidence.modality,
                 "event_type": evidence.event_type,
                 "name": evidence.name,
@@ -228,29 +363,76 @@ class DefaultMemoryExtractor:
             layer=MemoryLayer.EPISODIC.value,
             salience=base_salience,
             source_type=evidence.source_type,
+            trust_level=evidence.trust_level,
+            durability=(
+                Durability.EPHEMERAL.value
+                if evidence.source_type == SourceType.TOOL_RESULT.value
+                else Durability.SESSION.value
+            ),
+            subject=str(evidence.metadata.get("subject") or evidence.scope.user_id or "user"),
+            observed_at=evidence.occurred_at or evidence.created_at,
+            valid_from=evidence.occurred_at or evidence.created_at,
+            valid_to=evidence.metadata.get("valid_to"),
+            evidence_spans=[{"start": 0, "end": len(evidence.text), "text": evidence.text}],
         )
 
     def extract(self, evidence: EvidenceItem) -> list[MemoryCandidate]:
-        candidates = self.extract_semantic(evidence)
-        if candidates:
-            return candidates
-
+        semantic = self.extract_semantic(evidence)
         episode = self.build_episode_candidate(evidence)
-        if episode is None:
-            return []
-        return [
-            MemoryCandidate(
-                kind=episode.kind,
-                key=episode.key,
-                value=episode.value,
-                summary=episode.summary,
-                confidence=episode.confidence,
-                state=episode.state,
-                metadata=episode.metadata,
-                entity_names=episode.entity_names,
-                tags=episode.tags,
-                layer=episode.layer,
-                salience=episode.salience,
-                source_type=episode.source_type,
-            )
-        ]
+        return [*semantic, *([episode] if episode is not None else [])]
+
+    def _explicit_candidate(self, evidence: EvidenceItem) -> MemoryCandidate | None:
+        metadata = dict(evidence.metadata or {})
+        explicit = metadata.get("memory")
+        if not isinstance(explicit, dict):
+            if not metadata.get("memory_type") and not metadata.get("memory_key"):
+                return None
+            explicit = metadata
+        value = normalize_text(str(explicit.get("value") or evidence.text))
+        if not value:
+            return None
+        kind = str(explicit.get("kind") or explicit.get("memory_type") or MemoryKind.FACT.value)
+        key = str(explicit.get("key") or explicit.get("memory_key") or f"fact_{stable_hash(value)[:16]}")
+        summary = normalize_text(str(explicit.get("summary") or f"{kind.replace('_', ' ').title()}: {value}"))
+        layer = str(explicit.get("layer") or MemoryLayer.SEMANTIC.value)
+        return MemoryCandidate(
+            kind=kind,
+            key=key,
+            value=value,
+            summary=summary,
+            confidence=float(explicit.get("confidence", 1.0)),
+            state=str(explicit.get("state", MemoryState.ACTIVE.value)),
+            metadata={"extractor": "explicit", **dict(explicit.get("metadata") or {})},
+            entity_names=list(explicit.get("entity_names") or extract_entities(value)),
+            tags=list(explicit.get("tags") or [kind]),
+            layer=layer,
+            salience=float(explicit.get("salience", 1.0)),
+            source_type=evidence.source_type,
+            trust_level=str(explicit.get("trust_level") or evidence.trust_level),
+            durability=str(explicit.get("durability") or Durability.DURABLE.value),
+            subject=explicit.get("subject") or evidence.metadata.get("subject") or evidence.scope.user_id,
+            observed_at=explicit.get("observed_at") or evidence.occurred_at or evidence.created_at,
+            valid_from=explicit.get("valid_from") or evidence.occurred_at or evidence.created_at,
+            valid_to=explicit.get("valid_to"),
+            evidence_spans=[{"start": 0, "end": len(evidence.text), "text": evidence.text}],
+        )
+
+    def _clean_captured_value(self, value: str) -> str:
+        cleaned = normalize_text(value)
+        if not cleaned:
+            return ""
+        cleaned = self.CLAUSE_BOUNDARY_PATTERN.split(cleaned, maxsplit=1)[0]
+        cleaned = cleaned.strip(" ,.!?;:()[]{}\"'")
+        cleaned = self.TRAILING_JOINER_PATTERN.sub("", cleaned).strip()
+        return normalize_text(cleaned)
+
+    def _dedupe_candidates(self, candidates: list[MemoryCandidate]) -> list[MemoryCandidate]:
+        seen: set[tuple[str, str, str]] = set()
+        output: list[MemoryCandidate] = []
+        for candidate in candidates:
+            key = (candidate.kind, normalize_key(candidate.key), normalize_key(candidate.value))
+            if key in seen:
+                continue
+            seen.add(key)
+            output.append(candidate)
+        return output

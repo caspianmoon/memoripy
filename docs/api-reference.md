@@ -1,309 +1,183 @@
-# API Reference
+# Memoripy v4 API reference
 
-This page documents the main public interfaces exported by `memoripy`.
+## `Memory`
 
-## Clients
+A small facade for the common workflow.
+
+```python
+Memory(path=None, **client_kwargs)
+```
+
+Methods:
+
+- `capture(text=None, **kwargs)`
+- `recall(query, **kwargs)`
+- `search(query, **kwargs)`
+- `write(key=..., value=..., **kwargs)`
+- `explain(memory_id)`
+- `correct(memory_id, value, **kwargs)`
+- `forget(memory_id, **kwargs)`
+- `audit()`
 
 ## `MemoryClient`
 
-Main synchronous client.
-
-Construction:
+### Construction
 
 ```python
-from memoripy import MemoryClient
+MemoryClient(
+    repository=None,
+    chat_model=None,
+    embedding_model=None,
+    extractor=None,
+    pipeline=None,
+)
 
-client = MemoryClient()
-client = MemoryClient.from_path("./.memoripy")
+MemoryClient.from_path(path, **kwargs)
 ```
 
-Constructor inputs:
-
-- `repository`
-- `chat_model`
-- `embedding_model`
-- `extractor`
-- `pipeline`
-
-Namespaces:
-
-- `client.chat.completions.create(...)`
-- `client.context.build(...)`
-- `client.maintenance.consolidate(...)`
-
-Direct methods:
-
-- `add(...)`
-- `capture(...)`
-- `search(...)`
-- `get(...)`
-- `get_all(...)`
-- `update(...)`
-- `delete(...)`
-- `delete_all(...)`
-- `history(...)`
-- `export()`
-- `import_(...)`
-
-## `AsyncMemoryClient`
-
-Async wrapper around the same surface.
-
-It provides async versions of:
-
-- all direct methods
-- `chat.completions.create(...)`
-- `context.build(...)`
-- `maintenance.consolidate(...)`
-
-## Configuration Types
-
-## `MemoryPipelineConfig`
-
-Pipeline-level configuration object.
-
-Fields:
-
-- `extractor`
-- `reconciler`
-- `reranker`
-- `asset_processor`
-- `brain`
-- `semantic_promotion_threshold`
-- `pending_confidence_threshold`
-- `default_include_trace`
-- `max_trace_results`
-
-Use it when you want to plug in:
-
-- custom extraction
-- custom reconciliation
-- custom reranking
-- custom asset processing
-- brain-mode behavior
-
-## `BrainConfig`
-
-Brain-mode configuration.
-
-Fields:
-
-- `mode`
-- `working_memory_size`
-- `attention_decay_half_life_hours`
-- `dormancy_threshold`
-- `activation_spread`
-- `fast_path_candidate_limit`
-- `consolidation_window_hours`
-- `consolidation_min_support`
-
-Most users only need:
+### Capture and writing
 
 ```python
-BrainConfig(mode="attention_fast")
+client.capture(
+    messages=None,
+    events=None,
+    items=None,
+    user_id=None,
+    agent_id=None,
+    run_id=None,
+    project_id=None,
+    organization_id=None,
+    namespace=None,
+    idempotency_key=None,
+)
 ```
 
-## `SearchFilters`
+Returns evidence IDs, created and updated records, pending records, quarantined candidates, rejected candidates, admission decisions, and projection status.
 
-Search constraint object.
+```python
+client.write(
+    kind,
+    key,
+    value,
+    summary=None,
+    subject=None,
+    metadata=None,
+    tags=None,
+    entity_names=None,
+    layer="semantic",
+    observed_at=None,
+    durability="durable",
+    trust_level="authoritative",
+    valid_from=None,
+    valid_to=None,
+    **scope,
+)
+```
 
-Fields:
+### Search
 
-- `scope`
-- `kinds`
-- `states`
-- `tags`
-- `metadata`
-- `layers`
-- `source_types`
-- `include_pending`
-- `limit`
-- `hierarchical_scope`
+```python
+client.search(
+    query,
+    limit=5,
+    filters=None,
+    include_trace=False,
+    include_historical=False,
+    as_of=None,
+    expand_scope=True,
+    track_usage=True,
+    **scope,
+)
+```
 
-## `ContextPack`
-
-Structured grounding object returned by `context.build(...)`.
-
-Fields:
-
-- `query`
-- `scope`
-- `intent`
-- `working_memory`
-- `profile`
-- `preferences`
-- `relationships`
-- `recent_episodes`
-- `tool_observations`
-- `citations`
-- `projection_status`
-- `debug`
-- `trace`
-
-## `MemoryState`
-
-Public states:
-
-- `active`
-- `dormant`
-- `pending`
-- `superseded`
-- `deleted`
-
-## Repositories
-
-## `InMemoryRepository`
-
-Default repository used when none is supplied.
-
-## `FileMemoryRepository`
-
-Used by `MemoryClient.from_path(...)`.
-
-## `PostgresRepository`
-
-SQL-backed repository that requires the `postgres` extras.
-
-## Service Interfaces
-
-## `MemoryService`
-
-Request-handling facade used by both the lightweight HTTP server and FastAPI integration.
-
-## `serve_http()`
-
-Creates a basic threaded HTTP server.
-
-## `create_fastapi_app()`
-
-Creates a FastAPI app if the optional service dependencies are installed.
-
-## Important Method Shapes
-
-## `capture(...)`
-
-Assistant-first ingestion.
-
-Common inputs:
-
-- `messages`
-- `events`
-- `items`
-- `user_id`
-- `agent_id`
-- `run_id`
-- `idempotency_key`
-
-Common outputs:
-
-- `id`
-- `strategy`
-- `scope`
-- `evidence_ids`
-- `created`
-- `updated`
-- `pending`
-- `noop`
-- `memory_ids`
-- `semantic_memory_ids`
-- `episodic_memory_ids`
-- `projection_status`
-
-## `search(...)`
-
-Common inputs:
-
-- `query`
-- `user_id`
-- `agent_id`
-- `run_id`
-- `limit`
-- `filters`
-- `include_trace`
-
-Common outputs:
-
-- `query`
-- `filters`
-- `results`
-- `projection_status`
-- optional `trace`
-
-Each `results` entry includes:
+Search results contain:
 
 - `memory`
 - `score`
 - `rank_breakdown`
+- `retrieval_receipt`
 - `evidence`
 - `projection_status`
 
-## `context.build(...)`
+### Context
 
-Common inputs:
-
-- `query`
-- `messages`
-- `user_id`
-- `agent_id`
-- `run_id`
-- `limit`
-- `max_tokens`
-- `filters`
-- `include_debug`
-- `include_trace`
-- `context_policy`
+```python
+client.context.build(
+    query=None,
+    messages=None,
+    limit=8,
+    max_tokens=480,
+    include_debug=False,
+    include_trace=False,
+    include_historical=False,
+    as_of=None,
+    context_policy="compact",
+    **scope,
+)
+```
 
 Returns a `ContextPack`.
 
-## `chat.completions.create(...)`
+### Record operations
 
-Common inputs:
+- `get(memory_id=...)`
+- `get_all(filters=None, **scope)`
+- `update(memory_id=..., data=..., idempotency_key=None)`
+- `correct(memory_id=..., value=..., reason=None, valid_from=None, idempotency_key=None)`
+- `delete(memory_id=..., idempotency_key=None)`
+- `forget(memory_id=..., idempotency_key=None)`
+- `delete_all(filters=None, idempotency_key=None, **scope)`
+- `history(memory_id=...)`
+- `explain(memory_id=...)`
 
-- `messages`
-- `user_id`
-- `agent_id`
-- `run_id`
-- `model`
-- `limit`
-- `store`
-- `idempotency_key`
-- `tool_events`
-- `memory_strategy`
-- `include_memory_pack`
-- `include_trace`
-- `context_policy`
+### Quality and lifecycle
 
-Common outputs:
+- `audit()`
+- `feedback(memory_id=..., outcome=...)`
+- `maintenance.consolidate(...)`
+- `recover()` for file repositories
 
-- OpenAI-style `id`, `object`, `created`, `model`, and `choices`
-- `memory`
-- optional `memory_pack`
-- optional `trace`
+Supported feedback outcomes:
 
-## `maintenance.consolidate(...)`
+- `included`
+- `used`
+- `success`
+- `confirmed`
+- `corrected`
+- `rejected`
+- `failure`
 
-Common inputs:
+### Import and export
 
-- `scope`
-- `user_id`
-- `agent_id`
-- `run_id`
-- `limit`
-- `budget_ms`
-- `idempotency_key`
+- `export()`
+- `import_(payload, mode="merge" | "replace", idempotency_key=None)`
 
-Common outputs:
+## `AsyncMemoryClient`
 
-- `status`
-- `scope`
-- `processed_records`
-- `promotions`
-- `skipped`
-- `dormancy_transitions`
-- `projection_status`
+The asynchronous client mirrors `MemoryClient` and runs synchronous repository operations through `asyncio.to_thread`.
 
-## Related Guides
+## Configuration
 
-- [Getting started](./getting-started.md)
-- [Brain mode and maintenance](./brain-mode-and-maintenance.md)
-- [Service and storage](./service-and-storage.md)
+### `AdmissionConfig`
+
+Controls confidence thresholds, assistant semantic writes, generated-summary writes, sensitive-data quarantine, external-instruction quarantine, evidence-span requirements, and admission-log retention.
+
+### `RetrievalConfig`
+
+Controls reciprocal-rank fusion and lane weights for lexical, semantic, exact, entity, temporal, authority, activation, and policy retrieval.
+
+### `BrainConfig`
+
+Controls attention mode, working-memory size, decay, dormancy, consolidation, and utility weighting.
+
+### `MemoryPipelineConfig`
+
+Combines extractor, admission policy, reconciler, reranker, asset processor, brain, retrieval, and trace defaults.
+
+## Service
+
+- `MemoryService`
+- `serve_http(...)`
+- `create_fastapi_app(...)`
+
+The service is a local-development surface unless the caller supplies deployment authentication, authorization, tenancy, and operational controls.

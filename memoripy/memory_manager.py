@@ -16,9 +16,7 @@ class ConceptExtractionResponse:
 
 
 class MemoryManager:
-    """
-    Backward-compatible wrapper over Memoripy v2.
-    """
+    """Backward-compatible wrapper over the lower-level memory API."""
 
     def __init__(self, chat_model: Any | None = None, embedding_model: Any | None = None, storage: BaseStorage | None = None):
         self.chat_model = chat_model
@@ -29,7 +27,7 @@ class MemoryManager:
             chat_model=chat_model,
             embedding_model=self.embedding_model,
         )
-        self.dimension = self.embedding_model.initialize_embedding_dimension() or 32
+        self.dimension = self.embedding_model.initialize_embedding_dimension() or 128
 
     def standardize_embedding(self, embedding: list[float]) -> list[float]:
         if len(embedding) == self.dimension:
@@ -45,6 +43,7 @@ class MemoryManager:
         self.storage.save_memory_to_history(self.client)
 
     def add_interaction(self, prompt: str, output: str, embedding: list[float] | None = None, concepts: list[str] | None = None):
+        del embedding
         result = self.client.add(
             messages=[
                 {"role": "user", "content": prompt, "metadata": {"concepts": concepts or []}},

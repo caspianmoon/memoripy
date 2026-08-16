@@ -1,20 +1,16 @@
-# Memoripy Examples
+# Memoripy v4 examples
 
-This directory contains both the new v3 assistant-first examples and older compatibility examples.
+Start with [`v4_receipts.py`](./v4_receipts.py). It demonstrates:
 
-Detailed product and API documentation lives in [../docs/index.md](../docs/index.md).
+- evidence-backed capture
+- temporal supersession
+- preference correction
+- quarantine of an instruction embedded in external content
+- retrieval receipts and citations
+- the memory audit surface
 
-## Start Here
+Run it from the repository root:
 
-- [v3_basic.py](./v3_basic.py): Capture messages plus tool events, build a context pack, and ground chat completions with `memory_strategy="v3"`.
-- [benchmark_eval.py](./benchmark_eval.py): Run the fixed benchmark suite against the in-repo `attention_fast` Memoripy adapter.
-- [postgres_example.py](./postgres_example.py): Wire a `MemoryClient` to `PostgresRepository`.
-
-## Compatibility Examples
-
-- [v2_basic.py](./v2_basic.py): Basic `add/search/chat` usage with the lower-level v2-style API.
-- [azure_example.py](./azure_example.py): Using Memoripy with Azure OpenAI chat and embedding models.
-- [chatcompletions.py](./chatcompletions.py): Chat completion with an OpenRouter chat model and an Ollama embedding model.
-- [openai_example.py](./openai_example.py): Using Memoripy with an OpenAI chat model and an Ollama embedding model.
-- [openrouter.py](./openrouter.py): Using Memoripy with an OpenRouter chat model and an Ollama embedding model.
-- [dynamo](./dynamo/): Using the Memoripy storage adapter to leverage AWS DynamoDB as the memory persistence layer.
+```bash
+python examples/v4_receipts.py
+```

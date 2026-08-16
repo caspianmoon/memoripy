@@ -1,23 +1,19 @@
-# Memoripy Benchmarks
+# Memoripy v4 memory contracts
 
-This directory contains a reproducible benchmark harness for Memoripy's core memory behaviors.
+The old benchmark harness was useful as a regression scaffold, but it did not justify public comparative claims. V4 treats behavior contracts as the minimum trustworthy evaluation surface.
 
-For the broader product and API documentation, start with [../docs/index.md](../docs/index.md).
-
-It currently ships:
-
-- A fixed scenario set covering fact extraction, reconciliation, retrieval, grounding, maintenance traceability, and multimodal recall
-- A first-party `MemoripyBenchmarkAdapter` configured for `BrainConfig(mode="attention_fast")`
-- A target placeholder for `mem0` so the same scenarios can be reused in an external Mem0 environment
-
-Run the built-in benchmark:
+Run the built-in contracts:
 
 ```bash
-python3 -m benchmarks.runner --target memoripy
-python3 -m benchmarks.runner --target memoripy --json
-python3 -m benchmarks.runner --latency --json
+python -m memoripy eval
 ```
 
-The latency probe builds a fixed synthetic corpus and reports search/context timing so you can compare regressions on the same machine.
+Run the JSON examples in this directory:
 
-Scenario definitions live in [scenarios.py](./scenarios.py). They are plain data so you can reuse them in another adapter or CI pipeline.
+```bash
+python -m memoripy eval benchmarks/v4_contracts.json
+```
+
+Contracts should test externally visible behavior such as temporal updates, scope isolation, poisoning resistance, citation coverage, corrections, expiration, and procedural reuse.
+
+A serious comparative benchmark must use equivalent models, extractors, prompts, scope rules, and datasets for every target. The repository does not present the built-in contracts as a leaderboard.

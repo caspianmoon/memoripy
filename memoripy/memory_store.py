@@ -7,11 +7,9 @@ from .repository import BaseRepository, InMemoryRepository
 
 
 class MemoryStore:
-    """
-    Thin v2-compatible façade retained for legacy imports.
-    """
+    """Thin v2-compatible facade retained for legacy imports."""
 
-    def __init__(self, dimension: int = 32, repository: BaseRepository | None = None):
+    def __init__(self, dimension: int = 128, repository: BaseRepository | None = None):
         self.dimension = dimension
         self.client = MemoryClient(repository=repository or InMemoryRepository())
 
@@ -26,6 +24,7 @@ class MemoryStore:
         )
 
     def retrieve(self, query_embedding, query_concepts, similarity_threshold: float = 0.0, exclude_last_n: int = 0):
+        del query_embedding
         results = self.client.search(query=" ".join(query_concepts), limit=10)
         return [
             {

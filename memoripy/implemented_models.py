@@ -10,13 +10,18 @@ from .utils import hashed_embedding, unique_tokens
 
 def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
-    req = request.Request(url, data=body, headers={"Content-Type": "application/json", **headers}, method="POST")
+    req = request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", **headers},
+        method="POST",
+    )
     with request.urlopen(req, timeout=60) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
 class SimpleKeywordEmbeddingModel(EmbeddingModel):
-    def __init__(self, dimensions: int = 32):
+    def __init__(self, dimensions: int = 128):
         self.dimensions = dimensions
 
     def get_embedding(self, text: str) -> list[float]:
@@ -31,16 +36,19 @@ class EchoChatModel(ChatModel):
         self.model_name = model_name
 
     def invoke(self, messages: list[dict[str, Any]]) -> str:
-        if not messages:
-            return ""
-        return str(messages[-1].get("content", ""))
+        return str(messages[-1].get("content", "")) if messages else ""
 
     def extract_concepts(self, text: str) -> list[str]:
         return unique_tokens(text)[:10]
 
 
 class OpenAIEmbeddingModel(EmbeddingModel):
-    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small", base_url: str = "https://api.openai.com/v1"):
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "text-embedding-3-small",
+        base_url: str = "https://api.openai.com/v1",
+    ):
         self.api_key = api_key
         self.model_name = model_name
         self.base_url = base_url.rstrip("/")
@@ -87,7 +95,12 @@ class ChatCompletionsModel(ChatModel):
 
 
 class OpenAIChatModel(ChatCompletionsModel):
-    def __init__(self, api_key: str, model_name: str = "gpt-4o-mini", base_url: str = "https://api.openai.com/v1"):
+    def __init__(
+        self,
+        api_key: str,
+        model_name: str = "gpt-4o-mini",
+        base_url: str = "https://api.openai.com/v1",
+    ):
         super().__init__(api_endpoint=base_url, api_key=api_key, model_name=model_name)
 
 
@@ -114,7 +127,13 @@ class OllamaChatModel(ChatModel):
 
 
 class AzureOpenAIEmbeddingModel(EmbeddingModel):
-    def __init__(self, api_key: str, api_version: str, azure_endpoint: str, model_name: str = "text-embedding-3-small"):
+    def __init__(
+        self,
+        api_key: str,
+        api_version: str,
+        azure_endpoint: str,
+        model_name: str = "text-embedding-3-small",
+    ):
         self.api_key = api_key
         self.api_version = api_version
         self.azure_endpoint = azure_endpoint.rstrip("/")
@@ -131,7 +150,13 @@ class AzureOpenAIEmbeddingModel(EmbeddingModel):
 
 
 class AzureOpenAIChatModel(ChatModel):
-    def __init__(self, api_key: str, api_version: str, azure_endpoint: str, model_name: str = "gpt-4o-mini"):
+    def __init__(
+        self,
+        api_key: str,
+        api_version: str,
+        azure_endpoint: str,
+        model_name: str = "gpt-4o-mini",
+    ):
         self.api_key = api_key
         self.api_version = api_version
         self.azure_endpoint = azure_endpoint.rstrip("/")

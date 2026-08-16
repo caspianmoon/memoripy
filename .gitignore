@@ -1,22 +1,51 @@
-.venv
-.idea
+# Secrets and local configuration
 .env
-*.db
+.env.*
+!.env.example
 .gitconfig
 
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
 *.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
+.venv/
 venv/
-.env/
+env/
 
-# Distribution files
-dist/
+# Distribution
 build/
+dist/
 *.egg-info/
 
-# Jupyter Notebook checkpoints
+# Editors and notebooks
+.idea/
+.vscode/
 .ipynb_checkpoints/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Memoripy runtime stores
+.memoripy/
+.memoripy-*/
+.memoripy_*/
+*.memoripy-state.json
+*.memoripy-events.jsonl
+*.memoripy.lock
+*.memoripy.backup
+state.json
+state.json.backup
+state.json.checksum
+state.json.journal
+state.lock
+events.jsonl
+assets/

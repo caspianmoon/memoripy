@@ -1,5 +1,3 @@
-"""Command-line entry point retained for backward compatibility."""
-
 from .cli import main
 
 

@@ -74,7 +74,7 @@ class MemoripyV3Tests(unittest.TestCase):
         )
 
         snapshot = client.export()
-        self.assertEqual(snapshot["schema_version"], 3)
+        self.assertEqual(snapshot["schema_version"], 4)
         self.assertEqual(len(snapshot["evidence"]), 1)
         self.assertFalse(snapshot["memories"])
 
@@ -246,14 +246,14 @@ class MemoripyV3Tests(unittest.TestCase):
         client = MemoryClient()
         client.capture(messages=[{"role": "user", "content": "My favorite city is Tokyo"}], user_id="user-1", agent_id="jarvis")
 
-        original_rank_records = client._engine._rank_records
+        original_rank = client._engine._rank
         rank_calls = {"count": 0}
 
-        def counting_rank_records(*args, **kwargs):
+        def counting_rank(*args, **kwargs):
             rank_calls["count"] += 1
-            return original_rank_records(*args, **kwargs)
+            return original_rank(*args, **kwargs)
 
-        client._engine._rank_records = counting_rank_records
+        client._engine._rank = counting_rank
         try:
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": "What do you know about me?"}],
@@ -263,7 +263,7 @@ class MemoripyV3Tests(unittest.TestCase):
                 include_memory_pack=True,
             )
         finally:
-            client._engine._rank_records = original_rank_records
+            client._engine._rank = original_rank
 
         self.assertEqual(rank_calls["count"], 1)
         self.assertTrue(response["memory"]["results"])
@@ -295,7 +295,7 @@ class MemoripyV3Tests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(context["profile"])
 
-    def test_import_of_v2_snapshot_migrates_to_schema_three(self):
+    def test_import_of_v2_snapshot_migrates_to_schema_four(self):
         source = MemoryClient()
         source.add(text="I work at OpenAI", user_id="user-1")
         snapshot = source.export()
@@ -323,7 +323,7 @@ class MemoripyV3Tests(unittest.TestCase):
 
         destination = MemoryClient()
         imported = destination.import_(snapshot, mode="replace")
-        self.assertEqual(imported["schema_version"], 3)
+        self.assertEqual(imported["schema_version"], 4)
 
         results = destination.search(query="where do i work", user_id="user-1")
         self.assertIn("OpenAI", results["results"][0]["memory"]["value"])

@@ -1,7 +1,6 @@
-# Core memoripy runtime is stdlib-only.
+# Memoripy v4 has no required third-party runtime dependencies.
 #
-# Install extras as needed:
-#   pip install -e .[service]
-#   pip install -e .[postgres]
-#   pip install -e .[dynamo]
-#   pip install -e .[dev]
+# Optional installations:
+#   pip install -e ".[service]"
+#   pip install -e ".[postgres]"
+#   pip install -e ".[dev]"
