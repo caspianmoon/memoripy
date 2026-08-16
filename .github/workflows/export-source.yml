@@ -17,12 +17,12 @@ jobs:
 
       - name: Build source archive
         shell: bash
-        run: tar --exclude=.git -czf memoripy-v4-source.tar.gz .
+        run: tar --exclude=.git -czf "$RUNNER_TEMP/memoripy-v4-source.tar.gz" .
 
       - name: Upload source archive
         uses: actions/upload-artifact@v4
         with:
           name: memoripy-v4-source
-          path: memoripy-v4-source.tar.gz
+          path: ${{ runner.temp }}/memoripy-v4-source.tar.gz
           retention-days: 1
           if-no-files-found: error
