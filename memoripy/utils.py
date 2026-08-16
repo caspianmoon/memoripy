@@ -199,7 +199,8 @@ def atomic_copy(source: Path, destination: Path) -> None:
     os.close(fd)
     try:
         shutil.copy2(source, tmp_name)
-        with open(tmp_name, "rb") as handle:
+        with open(tmp_name, "rb+") as handle:
+            handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, destination)
         _fsync_directory(destination.parent)
