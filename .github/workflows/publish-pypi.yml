@@ -1,43 +1,158 @@
 name: Publish Python package
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
+      tag:
+        description: Existing GitHub release tag whose artifacts should be published
+        required: true
+        default: v0.4.0
+        type: string
       publish:
-        description: Publish the validated distributions to PyPI
-        type: boolean
+        description: I confirm that this release should be published to PyPI
+        required: true
         default: false
+        type: boolean
 
 permissions:
   contents: read
 
+concurrency:
+  group: publish-pypi-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
-  build:
+  guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Require an explicit release decision from master
+        env:
+          CONFIRM_PUBLISH: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CONFIRM_PUBLISH" != "true" ]]; then
+            echo "Publishing was not explicitly confirmed. Re-run with publish=true."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/master" ]]; then
+            echo "PyPI publishing must be dispatched from the master branch, not $GITHUB_REF."
+            exit 1
+          fi
+
+  prepare:
+    needs: guard
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+    steps:
+      - name: Validate the GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG"
+            exit 1
+          fi
+
+          gh release view "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isDraft,isPrerelease,targetCommitish > release.json
+
+          if [[ "$(jq -r '.tagName' release.json)" != "$RELEASE_TAG" ]]; then
+            echo "GitHub returned a different release tag."
+            exit 1
+          fi
+          if [[ "$(jq -r '.isDraft' release.json)" != "false" ]]; then
+            echo "Draft releases cannot be published to PyPI."
+            exit 1
+          fi
+
+      - name: Download the exact release distributions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir dist \
+            --pattern 'memoripy-*.whl' \
+            --pattern 'memoripy-*.tar.gz'
+
+          mapfile -t wheels < <(find dist -maxdepth 1 -type f -name 'memoripy-*.whl' -print)
+          mapfile -t sdists < <(find dist -maxdepth 1 -type f -name 'memoripy-*.tar.gz' -print)
+          if [[ ${#wheels[@]} -ne 1 || ${#sdists[@]} -ne 1 ]]; then
+            echo "Expected exactly one Memoripy wheel and one source distribution."
+            find dist -maxdepth 1 -type f -print
+            exit 1
+          fi
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
-      - name: Build dependencies
-        run: python -m pip install --upgrade build twine
-      - name: Build distributions
-        run: python -m build
-      - name: Validate metadata
-        run: python -m twine check dist/*
-      - name: Upload exact distributions
+
+      - name: Verify package identity, version, metadata, and hashes
+        id: verify
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade "twine>=5.1,<7.0"
+          python - <<'PY'
+          from __future__ import annotations
+
+          import os
+          import pathlib
+          import zipfile
+          from email.parser import Parser
+
+          dist = pathlib.Path("dist")
+          wheels = list(dist.glob("memoripy-*.whl"))
+          sdists = list(dist.glob("memoripy-*.tar.gz"))
+          if len(wheels) != 1 or len(sdists) != 1:
+              raise SystemExit("Expected exactly one wheel and one source distribution")
+
+          wheel = wheels[0]
+          with zipfile.ZipFile(wheel) as archive:
+              metadata_files = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+              if len(metadata_files) != 1:
+                  raise SystemExit("Wheel must contain exactly one METADATA file")
+              metadata = Parser().parsestr(archive.read(metadata_files[0]).decode("utf-8"))
+
+          package_name = str(metadata.get("Name", "")).casefold().replace("-", "_")
+          version = str(metadata.get("Version", ""))
+          expected_version = os.environ["RELEASE_TAG"].removeprefix("v")
+
+          if package_name != "memoripy":
+              raise SystemExit(f"Unexpected package name: {metadata.get('Name')}")
+          if version != expected_version:
+              raise SystemExit(f"Tag {expected_version} does not match wheel version {version}")
+          if sdists[0].name != f"memoripy-{version}.tar.gz":
+              raise SystemExit(f"Unexpected source distribution name: {sdists[0].name}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+          PY
+          python -m twine check dist/*
+          sha256sum dist/*
+
+      - name: Upload the verified distributions
         uses: actions/upload-artifact@v4
         with:
-          name: python-distributions
+          name: memoripy-${{ steps.verify.outputs.version }}-distributions
           path: dist/
           if-no-files-found: error
+          retention-days: 7
 
   publish:
-    if: github.event_name == 'release' || inputs.publish == true
-    needs: build
+    needs: prepare
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -45,9 +160,11 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download the verified distributions
+        uses: actions/download-artifact@v4
         with:
-          name: python-distributions
+          name: memoripy-${{ needs.prepare.outputs.version }}-distributions
           path: dist/
+
       - name: Publish through PyPI trusted publishing
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
