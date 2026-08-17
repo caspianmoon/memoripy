@@ -9,7 +9,7 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 parts_dir = root / ".github" / "v4_payload_parts"
 encoded = "".join(path.read_text(encoding="ascii") for path in sorted(parts_dir.glob("*.part")))
-data = json.loads(zlib.decompress(base64.b85decode(encoded.encode("ascii"))).decode("utf-8"))
+data = json.loads(zlib.decompress(base64.b64decode(encoded.encode("ascii"))).decode("utf-8"))
 for relative, content in data["files"].items():
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
