@@ -1,0 +1,21 @@
+name: MCP smoke test
+
+on:
+  push:
+    branches: [master, v4]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  mcp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -e ".[mcp,dev]"
+      - run: python -m unittest tests.test_mcp_integration -v
