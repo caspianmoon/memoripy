@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from .temporal import infer_temporal_bounds
 from .types import (
     Durability,
     EventType,
@@ -125,6 +126,7 @@ class DefaultMemoryExtractor:
         candidates: list[MemoryCandidate] = []
         subject = str(evidence.metadata.get("subject") or evidence.scope.user_id or "user")
         entities = extract_entities(text)
+        temporal = infer_temporal_bounds(text, evidence.occurred_at or evidence.created_at)
 
         def add(
             *,
@@ -173,8 +175,8 @@ class DefaultMemoryExtractor:
                     durability=durability,
                     subject=subject,
                     observed_at=evidence.occurred_at or evidence.created_at,
-                    valid_from=evidence.metadata.get("valid_from") or evidence.occurred_at or evidence.created_at,
-                    valid_to=evidence.metadata.get("valid_to"),
+                    valid_from=evidence.metadata.get("valid_from") or temporal.valid_from,
+                    valid_to=evidence.metadata.get("valid_to") or temporal.valid_to,
                     evidence_spans=spans,
                 )
             )
@@ -301,8 +303,8 @@ class DefaultMemoryExtractor:
                     durability=Durability.DURABLE.value,
                     subject=subject,
                     observed_at=evidence.occurred_at or evidence.created_at,
-                    valid_from=evidence.metadata.get("valid_from") or evidence.occurred_at or evidence.created_at,
-                    valid_to=evidence.metadata.get("valid_to"),
+                    valid_from=evidence.metadata.get("valid_from") or temporal.valid_from,
+                    valid_to=evidence.metadata.get("valid_to") or temporal.valid_to,
                     evidence_spans=[
                         {"start": match.start(), "end": match.end(), "text": match.group(0)}
                     ],
@@ -332,6 +334,7 @@ class DefaultMemoryExtractor:
             return None
         if base_salience < 0.38:
             return None
+        temporal = infer_temporal_bounds(text, evidence.occurred_at or evidence.created_at)
         generic_key = stable_hash(
             text[:300],
             evidence.modality,
@@ -371,8 +374,8 @@ class DefaultMemoryExtractor:
             ),
             subject=str(evidence.metadata.get("subject") or evidence.scope.user_id or "user"),
             observed_at=evidence.occurred_at or evidence.created_at,
-            valid_from=evidence.occurred_at or evidence.created_at,
-            valid_to=evidence.metadata.get("valid_to"),
+            valid_from=evidence.metadata.get("valid_from") or temporal.valid_from,
+            valid_to=evidence.metadata.get("valid_to") or temporal.valid_to,
             evidence_spans=[{"start": 0, "end": len(evidence.text), "text": evidence.text}],
         )
 

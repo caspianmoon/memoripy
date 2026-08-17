@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .client import MemoryClient
 from .types import EventType, SourceType
@@ -149,11 +149,16 @@ def load_contracts(path: str | Path | None = None) -> list[MemoryContract]:
     return [MemoryContract.from_dict(item) for item in payload]
 
 
-def run_contracts(contracts: list[MemoryContract] | None = None) -> dict[str, Any]:
+def run_contracts(
+    contracts: list[MemoryContract] | None = None,
+    *,
+    client_factory: Callable[[], MemoryClient] | None = None,
+) -> dict[str, Any]:
     contracts = contracts or list(BUILTIN_CONTRACTS)
+    client_factory = client_factory or MemoryClient
     results: list[dict[str, Any]] = []
     for contract in contracts:
-        client = MemoryClient()
+        client = client_factory()
         event_results = []
         for event in contract.events:
             event_results.append(client.capture(**event))

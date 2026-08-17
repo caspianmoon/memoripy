@@ -154,6 +154,12 @@ class RetrievalConfig:
     def describe(self) -> dict[str, Any]:
         return self.__dict__.copy()
 
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "RetrievalConfig":
+        payload = payload or {}
+        allowed = cls.__dataclass_fields__
+        return cls(**{key: value for key, value in payload.items() if key in allowed})
+
 
 @dataclass
 class MemoryPipelineConfig:

@@ -34,8 +34,10 @@ pip install -e ".[dev]"
 Optional extras:
 
 ```bash
-pip install -e ".[service]"
-pip install -e ".[postgres]"
+pip install -e ".[service]"       # FastAPI and Uvicorn
+pip install -e ".[mcp]"           # Official MCP v2 server
+pip install -e ".[postgres]"      # SQLAlchemy, Psycopg, and pgvector
+pip install -e ".[comparisons]"   # Mem0, Hindsight, LangMem, and Graphiti adapters
 ```
 
 ## The five-minute example
@@ -369,7 +371,7 @@ Corrupt state is not silently treated as an empty memory store.
 
 ## HTTP service
 
-The bundled service is intended for local development and controlled deployments. It is not a multi-tenant hosted platform.
+The bundled single-store service is intended for local development and controlled deployments. For authenticated multi-tenant hosting, use the tenant gateway described below.
 
 ```bash
 pip install -e ".[service]"
@@ -390,6 +392,83 @@ Core v4 routes include:
 - `POST /v4/chat/completions`
 
 When `MEMORIPY_API_KEY` is set, clients must send `Authorization: Bearer <key>`.
+
+## Official MCP server
+
+Install the optional MCP v2 dependency and run the stdio server:
+
+```bash
+pip install "memoripy[mcp]"
+memoripy mcp ./.memoripy
+```
+
+The server exposes capture, recall, explain, correct, forget, audit, and list tools. Network transports are deliberately refused unless a token file is configured:
+
+```bash
+memoripy mcp ./.memoripy \
+  --transport streamable-http \
+  --token-file ./mcp-tokens.json
+```
+
+Bearer tokens can be restricted to `memoripy:read`, `memoripy:write`, or `memoripy:admin`, and may lock the connected agent to a user and tenant scope. See [the MCP guide](./docs/mcp-server.md).
+
+## Hosted multi-tenant gateway and inspector
+
+Create a tenant credential:
+
+```bash
+memoripy key create ./registry.json customer-a \
+  --scope memoripy:read \
+  --scope memoripy:write
+```
+
+Then run physically isolated tenant stores behind one authenticated gateway:
+
+```bash
+memoripy gateway ./hosted-data ./registry.json --host 0.0.0.0 --port 8080
+```
+
+The registry stores hashed tokens, supports revocation and expiry, and binds every request to the authenticated tenant's organization scope. Open `/inspector` to search memories, inspect receipts and evidence, audit the store, correct records, and version-delete memory.
+
+This is a self-hosted API-key authorization layer, not a bundled enterprise identity provider. Deploy it behind TLS and an appropriate reverse proxy. See [the gateway guide](./docs/hosted-gateway.md).
+
+## Assisted and temporal extraction
+
+The default extractor now attaches deterministic temporal validity for explicit ISO dates, ranges, and common relative phrases such as `last month` and `three days ago`.
+
+For broader language, use the optional strict assisted extractor:
+
+```python
+from memoripy import AssistedMemoryExtractor, MemoryClient, MemoryPipelineConfig
+from memoripy.implemented_models import OllamaChatModel
+
+client = MemoryClient(
+    pipeline=MemoryPipelineConfig(
+        extractor=AssistedMemoryExtractor(OllamaChatModel())
+    )
+)
+```
+
+Automatically accepted model candidates must cite an exact span from the evidence. The model cannot elevate source trust or bypass admission policy. See [assisted extraction](./docs/assisted-extraction.md).
+
+## Tune and compare
+
+Tune retrieval against your own memory contracts:
+
+```bash
+memoripy tune benchmarks/v4_contracts.json \
+  --output memoripy-retrieval-profile.json
+```
+
+Use the selected profile in the service, inspector, or gateway. Tuning is bounded to retrieval behavior and cannot rewrite trust, admission, or tenant-isolation rules.
+
+Run the same contracts against available systems:
+
+```bash
+memoripy compare benchmarks/v4_contracts.json --json
+```
+
+Adapters are included for Memoripy, Mem0, Hindsight, LangMem, and Graphiti. Missing services, credentials, or databases are reported as unavailable and excluded, not assigned fabricated zero scores. See [tuning and comparisons](./docs/tuning-and-comparisons.md).
 
 ## Bring your own models
 
@@ -427,8 +506,10 @@ See [the migration guide](./docs/migration-v3-v4.md) for behavior changes.
 
 - The deterministic extractor is not general language understanding.
 - The local hashed embedding is a dependency-free fallback, not a replacement for a high-quality embedding model.
-- The bundled HTTP server is not a secure hosted multi-tenant product by default.
+- The single-store development server is not a hosted platform. Use the authenticated gateway for tenant isolation.
+- The gateway provides scoped API-key authorization, not a bundled enterprise identity provider.
 - The built-in contracts are regression checks, not a complete public leaderboard.
+- External comparison numbers are meaningful only when the same contracts, model stack, and infrastructure are available.
 - Memory correctness still depends on application identity, scope, source labeling, and policy choices.
 
 ## Development
@@ -445,6 +526,11 @@ ruff check memoripy tests
 - [V4 architecture](./docs/v4-architecture.md)
 - [Admission and trust](./docs/admission-and-trust.md)
 - [Audit and memory contracts](./docs/audit-and-evals.md)
+- [Assisted and temporal extraction](./docs/assisted-extraction.md)
+- [Official MCP server](./docs/mcp-server.md)
+- [Hosted gateway and inspector](./docs/hosted-gateway.md)
+- [Tuning and comparisons](./docs/tuning-and-comparisons.md)
+- [Release process](./docs/releasing.md)
 - [Migration from v3](./docs/migration-v3-v4.md)
 - [API reference](./docs/api-reference.md)
 

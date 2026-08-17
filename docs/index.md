@@ -18,3 +18,12 @@ Start with the repository [README](../README.md), then use these guides:
 - [API reference](./api-reference.md)
 
 The older v3 concept guides remain in the repository for historical context, but v4 behavior takes precedence where they conflict.
+
+
+## V4 operational surfaces
+
+- [Assisted and temporal extraction](./assisted-extraction.md)
+- [Official MCP server](./mcp-server.md)
+- [Hosted multi-tenant gateway and inspector](./hosted-gateway.md)
+- [Retrieval tuning and external comparisons](./tuning-and-comparisons.md)
+- [Release process](./releasing.md)

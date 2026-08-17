@@ -2,5 +2,7 @@
 #
 # Optional installations:
 #   pip install -e ".[service]"
+#   pip install -e ".[mcp]"
 #   pip install -e ".[postgres]"
+#   pip install -e ".[comparisons]"
 #   pip install -e ".[dev]"

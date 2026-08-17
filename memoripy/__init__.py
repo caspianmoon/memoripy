@@ -1,5 +1,14 @@
 from .admission import AdmissionConfig, AdmissionPolicy, DefaultAdmissionPolicy
+from .assisted import AssistedExtractionConfig, AssistedMemoryExtractor, StructuredExtractionError
 from .client import AsyncMemoryClient, Memory, MemoryClient
+from .comparisons import (
+    GraphitiComparisonAdapter,
+    HindsightComparisonAdapter,
+    LangMemComparisonAdapter,
+    Mem0ComparisonAdapter,
+    MemoripyComparisonAdapter,
+    run_comparison,
+)
 from .implemented_models import (
     AzureOpenAIChatModel,
     AzureOpenAIEmbeddingModel,
@@ -12,6 +21,9 @@ from .implemented_models import (
     OpenRouterChatModel,
     SimpleKeywordEmbeddingModel,
 )
+from .gateway import TenantMemoryGateway, serve_gateway
+from .inspector import inspector_html, serve_inspector
+from .mcp_server import MCPAccessPolicy, MemoripyMCPTools, build_mcp_server, run_mcp_server
 from .model import ChatModel, EmbeddingModel
 from .pipeline import (
     AssetProcessor,
@@ -34,6 +46,22 @@ from .repository import (
     MemoryRepositoryError,
 )
 from .service import MemoryService, create_fastapi_app, serve_http
+from .temporal import TemporalBounds, infer_temporal_bounds
+from .tenant import (
+    ADMIN_SCOPE,
+    READ_SCOPE,
+    WRITE_SCOPE,
+    TenantPrincipal,
+    TenantRegistry,
+    TenantStoreManager,
+)
+from .tuning import (
+    RetrievalProfile,
+    TuningResult,
+    load_retrieval_profile,
+    save_retrieval_profile,
+    tune_retrieval,
+)
 from .types import (
     AdmissionDecision,
     AdmissionReason,
@@ -82,6 +110,9 @@ except ImportError:
     MemoryStore = None  # type: ignore[assignment]
 
 __all__ = [
+    "ADMIN_SCOPE",
+    "AssistedExtractionConfig",
+    "AssistedMemoryExtractor",
     "AdmissionConfig",
     "AdmissionDecision",
     "AdmissionPolicy",
@@ -147,6 +178,33 @@ __all__ = [
     "SimpleKeywordEmbeddingModel",
     "SourceType",
     "TrustLevel",
+    "GraphitiComparisonAdapter",
+    "HindsightComparisonAdapter",
+    "LangMemComparisonAdapter",
+    "MCPAccessPolicy",
+    "Mem0ComparisonAdapter",
+    "MemoripyComparisonAdapter",
+    "MemoripyMCPTools",
+    "READ_SCOPE",
+    "RetrievalProfile",
+    "StructuredExtractionError",
+    "TemporalBounds",
+    "TenantMemoryGateway",
+    "TenantPrincipal",
+    "TenantRegistry",
+    "TenantStoreManager",
+    "TuningResult",
+    "WRITE_SCOPE",
+    "build_mcp_server",
+    "infer_temporal_bounds",
+    "inspector_html",
+    "load_retrieval_profile",
+    "run_comparison",
+    "run_mcp_server",
+    "save_retrieval_profile",
+    "serve_gateway",
+    "serve_inspector",
+    "tune_retrieval",
     "create_fastapi_app",
     "serve_http",
 ]

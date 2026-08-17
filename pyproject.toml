@@ -8,7 +8,7 @@ version = "0.4.0"
 description = "Evidence-first local memory for AI agents with temporal versions, admission policies, citations, and explainable recall."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
 authors = [
   { name = "Khazar Ayaz", email = "khazar.ayaz@personnoai.com" },
 ]
@@ -24,7 +24,6 @@ keywords = [
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -40,6 +39,29 @@ service = [
   "fastapi>=0.110,<1.0",
   "uvicorn>=0.30,<1.0",
 ]
+mcp = [
+  "mcp>=2.0,<3.0",
+]
+mem0 = [
+  "mem0ai>=0.1,<2.0",
+]
+hindsight = [
+  "hindsight-client>=0.9,<1.0",
+]
+langmem = [
+  "langmem>=0.0.30,<1.0",
+  "langgraph>=0.6,<2.0",
+]
+graphiti = [
+  "graphiti-core>=0.20,<1.0",
+]
+comparisons = [
+  "mem0ai>=0.1,<2.0",
+  "hindsight-client>=0.9,<1.0",
+  "langmem>=0.0.30,<1.0",
+  "langgraph>=0.6,<2.0",
+  "graphiti-core>=0.20,<1.0",
+]
 postgres = [
   "sqlalchemy>=2.0,<3.0",
   "psycopg[binary]>=3.1,<4.0",
@@ -49,6 +71,7 @@ dev = [
   "build>=1.2,<2.0",
   "pytest>=8.0,<9.0",
   "ruff>=0.5,<1.0",
+  "twine>=5.1,<7.0",
 ]
 
 [project.scripts]
@@ -56,7 +79,7 @@ memoripy = "memoripy.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/caspianmoon/memoripy"
-Documentation = "https://github.com/caspianmoon/memoripy/tree/v4/docs"
+Documentation = "https://github.com/caspianmoon/memoripy/tree/master/docs"
 Repository = "https://github.com/caspianmoon/memoripy"
 Issues = "https://github.com/caspianmoon/memoripy/issues"
 
