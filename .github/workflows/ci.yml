@@ -30,6 +30,13 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Memory contracts
         run: python -m memoripy eval
+      - name: Retrieval tuning smoke
+        shell: bash
+        run: |
+          python -m memoripy tune benchmarks/v4_contracts.json --output retrieval-profile.json --json
+          test -s retrieval-profile.json
+      - name: Comparison harness smoke
+        run: python -m memoripy compare benchmarks/v4_contracts.json --adapters memoripy --json
 
   package:
     runs-on: ubuntu-latest
@@ -39,8 +46,9 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: python -m pip install build
+      - run: python -m pip install build twine
       - run: python -m build
+      - run: python -m twine check dist/*
       - name: Smoke install wheel
         shell: bash
         run: |
