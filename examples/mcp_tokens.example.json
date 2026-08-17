@@ -1,0 +1,9 @@
+{
+  "tokens": {
+    "replace-with-a-long-random-token": {
+      "client_id": "local-agent",
+      "subject": "example-user",
+      "scopes": ["memoripy:read", "memoripy:write"]
+    }
+  }
+}

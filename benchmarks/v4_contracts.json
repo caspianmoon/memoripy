@@ -1,0 +1,71 @@
+{
+  "contracts": [
+    {
+      "name": "current_location_supersedes_old_location",
+      "description": "Current truth excludes the historical value while historical recall preserves it.",
+      "events": [
+        {
+          "messages": [{"role": "user", "content": "I live in Paris."}],
+          "user_id": "u1"
+        },
+        {
+          "messages": [{"role": "user", "content": "I moved to Istanbul."}],
+          "user_id": "u1"
+        }
+      ],
+      "queries": [
+        {
+          "query": "Where do I live now?",
+          "user_id": "u1",
+          "expect_contains": ["Istanbul"],
+          "expect_not_contains": ["Paris"]
+        },
+        {
+          "query": "Where did I live before?",
+          "user_id": "u1",
+          "include_historical": true,
+          "expect_contains": ["Paris"]
+        }
+      ]
+    },
+    {
+      "name": "multi_user_isolation",
+      "description": "One user's preference must not leak to another user.",
+      "events": [
+        {
+          "messages": [{"role": "user", "content": "My favorite city is Tokyo."}],
+          "user_id": "u1"
+        },
+        {
+          "messages": [{"role": "user", "content": "My favorite city is Algiers."}],
+          "user_id": "u2"
+        }
+      ],
+      "queries": [
+        {
+          "query": "What city do I like?",
+          "user_id": "u1",
+          "expect_contains": ["Tokyo"],
+          "expect_not_contains": ["Algiers"]
+        }
+      ]
+    },
+    {
+      "name": "unicode_retrieval",
+      "description": "Unicode location text survives extraction and retrieval.",
+      "events": [
+        {
+          "messages": [{"role": "user", "content": "Ben İstanbul'da yaşıyorum."}],
+          "user_id": "u1"
+        }
+      ],
+      "queries": [
+        {
+          "query": "Nerede yaşıyorum?",
+          "user_id": "u1",
+          "expect_contains": ["İstanbul"]
+        }
+      ]
+    }
+  ]
+}

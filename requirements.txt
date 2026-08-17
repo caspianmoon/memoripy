@@ -1,54 +1,8 @@
-aiohappyeyeballs==2.4.3
-aiohttp==3.10.10
-aiosignal==1.3.1
-annotated-types==0.7.0
-anyio==4.6.2.post1
-attrs==24.2.0
-black==24.10.0
-certifi==2024.8.30
-charset-normalizer==3.4.0
-distro==1.9.0
-faiss-cpu==1.8.0.post1
-frozenlist==1.5.0
-h11==0.14.0
-httpcore==1.0.6
-httpx==0.27.2
-idna==3.10
-jiter==0.7.0
-joblib==1.4.2
-jsonpatch==1.33
-jsonpointer==3.0.0
-langchain==0.3.7
-langchain-core==0.3.15
-langchain-ollama==0.2.0
-langchain-openai==0.2.5
-langchain-text-splitters==0.3.2
-langsmith==0.1.139
-multidict==6.1.0
-networkx==3.4.2
-numpy==1.26.4
-ollama==0.3.3
-openai==1.53.0
-orjson==3.10.11
-packaging==24.1
-propcache==0.2.0
-pydantic==2.9.2
-pydantic_core==2.23.4
-python-dotenv==1.0.1
-pynamodb==6.0.1
-PyYAML==6.0.2
-regex==2024.9.11
-requests==2.32.3
-requests-toolbelt==1.0.0
-scikit-learn==1.5.2
-scipy==1.14.1
-setuptools==75.3.0
-sniffio==1.3.1
-SQLAlchemy==2.0.36
-tenacity==9.0.0
-threadpoolctl==3.5.0
-tiktoken==0.8.0
-tqdm==4.66.6
-typing_extensions==4.12.2
-urllib3==2.2.3
-yarl==1.17.1
+# Memoripy v4 has no required third-party runtime dependencies.
+#
+# Optional installations:
+#   pip install -e ".[service]"
+#   pip install -e ".[mcp]"
+#   pip install -e ".[postgres]"
+#   pip install -e ".[comparisons]"
+#   pip install -e ".[dev]"

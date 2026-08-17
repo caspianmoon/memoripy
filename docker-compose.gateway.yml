@@ -1,0 +1,12 @@
+services:
+  memoripy:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - memoripy-data:/data
+      - ./registry.json:/config/registry.json:ro
+    restart: unless-stopped
+
+volumes:
+  memoripy-data:

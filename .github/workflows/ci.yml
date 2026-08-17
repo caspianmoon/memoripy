@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+      - name: Compile
+        run: python -m compileall -q memoripy
+      - name: Tests
+        run: python -m unittest discover -s tests -v
+      - name: Memory contracts
+        run: python -m memoripy eval
+      - name: Retrieval tuning smoke
+        shell: bash
+        run: |
+          python -m memoripy tune benchmarks/v4_contracts.json --output retrieval-profile.json --json
+          test -s retrieval-profile.json
+      - name: Comparison harness smoke
+        run: python -m memoripy compare benchmarks/v4_contracts.json --adapters memoripy --json
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install build twine
+      - run: python -m build
+      - run: python -m twine check dist/*
+      - name: Smoke install wheel
+        shell: bash
+        run: |
+          python -m venv /tmp/memoripy-smoke
+          /tmp/memoripy-smoke/bin/python -m pip install dist/*.whl
+          /tmp/memoripy-smoke/bin/python -c "import memoripy; print(memoripy.__version__)"
+          /tmp/memoripy-smoke/bin/python -m memoripy eval
